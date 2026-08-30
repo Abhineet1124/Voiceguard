@@ -1,0 +1,59 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+dist/
+build/
+.vite/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Python notebooks
+.ipynb_checkpoints/
+
+# ML generated files
+*.pt
+*.pth
+*.onnx
+*.ckpt
+
+# Temporary audio
+*.tmp
+*.temp
+
+# Uploaded/generated audio
+uploads/
+temp_audio/
+
+# Database/local files
+*.sqlite
+*.sqlite3
+
+# Coverage
+htmlcov/
+.coverage
+coverage.xml
+
+# Archives
+*.tar.gz
+*.zip

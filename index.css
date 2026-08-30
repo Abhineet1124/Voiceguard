@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  @apply box-border;
+}
+
+body {
+  @apply bg-slate-950 text-slate-50 antialiased;
+}
+
+.card {
+  @apply bg-slate-900 rounded-lg border border-slate-800 p-4;
+}
+
+.btn {
+  @apply px-4 py-2 rounded-lg font-medium transition-all;
+}
+
+.btn-primary {
+  @apply btn bg-cyan-600 hover:bg-cyan-700 text-white;
+}
+
+.btn-secondary {
+  @apply btn bg-slate-800 hover:bg-slate-700 text-slate-100;
+}
