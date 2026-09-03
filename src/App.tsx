@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Shield, BarChart3, FileAudio, AlertCircle } from 'lucide-react'
-import Dashboard from './pages/Dashboard'
-import AnalysisPage from './pages/AnalysisPage'
+import Dashboard from "./Dashboard";
+import AnalysisPage from "./AnalysisPage";
 import axios from 'axios'
 
 type Page = 'dashboard' | 'analyze' | 'incidents' | 'analytics'
@@ -19,20 +19,24 @@ export default function App() {
   const [connected, setConnected] = useState(false)
 
   useEffect(() => {
-    const checkHealth = async () => {
-      try {
-        const res = await axios.get('http://localhost:8000/api/health')
-        setHealth(res.data)
-        setConnected(true)
-      } catch {
-        setConnected(false)
-      }
+  const checkHealth = async () => {
+    try {
+      const res = await axios.get('http://localhost:8000/api/health')
+      setHealth(res.data)
+      setConnected(true)
+    } catch (error) {
+      console.error('Backend health check failed:', error)
+      setConnected(false)
     }
-    
-    checkHealth()
-    const interval = setInterval(checkHealth, 5000)
-    return () => clearInterval(interval)
-  }, [])
+  }
+
+  checkHealth()
+
+  // Check every 15 seconds instead of every 5 seconds
+  const interval = setInterval(checkHealth, 15000)
+
+  return () => clearInterval(interval)
+}, [])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 to-slate-900">

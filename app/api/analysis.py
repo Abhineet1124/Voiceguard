@@ -1,86 +1,51 @@
-from fastapi import APIRouter, File, UploadFile, HTTPException
-from datetime import datetime
-import time
-import uuid
-
-from app.schemas.analysis import AnalysisResponse
+from fastapi import APIRouter, UploadFile, File, HTTPException
+from pathlib import Path
 
 router = APIRouter()
 
 
-ALLOWED_AUDIO_TYPES = {
-    "audio/wav",
-    "audio/x-wav",
-    "audio/mpeg",
-    "audio/mp3",
-    "audio/mp4",
-    "audio/x-m4a",
-    "audio/m4a",
-}
-
-MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
+@router.get("/analysis/status")
+async def analysis_status():
+    return {
+        "status": "ready",
+        "service": "VoiceGuard Analysis Engine",
+        "version": "1.0.0"
+    }
 
 
-@router.post("/analyze", response_model=AnalysisResponse)
+@router.get("/analyses")
+async def get_analyses(limit: int = 100):
+    return {
+        "analyses": [],
+        "total": 0,
+        "limit": limit
+    }
+
+
+@router.post("/analysis/analyze")
 async def analyze_audio(file: UploadFile = File(...)):
-    """
-    Phase 1/2 analysis endpoint.
+    allowed_extensions = {".wav", ".mp3", ".m4a", ".ogg"}
 
-    Current implementation validates the uploaded audio and returns
-    a clearly marked placeholder result. The real ML detector will
-    replace this logic in the ML phase.
-    """
+    extension = Path(file.filename or "").suffix.lower()
 
-    start_time = time.perf_counter()
-
-    if not file.filename:
+    if extension not in allowed_extensions:
         raise HTTPException(
             status_code=400,
-            detail="No filename provided."
+            detail=f"Unsupported audio format: {extension}"
         )
 
-    content_type = (file.content_type or "").lower()
+    contents = await file.read()
 
-    # Allow common audio formats. Some browsers may send an empty
-    # or generic MIME type, so extension checking is also performed.
-    allowed_extensions = (".wav", ".mp3", ".m4a")
-
-    if (
-        content_type not in ALLOWED_AUDIO_TYPES
-        and not file.filename.lower().endswith(allowed_extensions)
-    ):
+    if not contents:
         raise HTTPException(
             status_code=400,
-            detail="Unsupported audio format. Use WAV, MP3, or M4A."
+            detail="Uploaded audio file is empty"
         )
 
-    audio_data = await file.read()
-
-    if not audio_data:
-        raise HTTPException(
-            status_code=400,
-            detail="Uploaded audio file is empty."
-        )
-
-    if len(audio_data) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail="Audio file exceeds the 25 MB size limit."
-        )
-
-    processing_time = time.perf_counter() - start_time
-
-    # IMPORTANT:
-    # This is NOT an ML prediction.
-    # It is only a temporary development response until the
-    # actual voice-clone detector is connected.
-    return AnalysisResponse(
-        id=uuid.uuid4().int % 2147483647,
-        filename=file.filename,
-        label="pending",
-        confidence=0.0,
-        risk_level="UNKNOWN",
-        action="REVIEW",
-        processing_time=round(processing_time, 4),
-        model_version="not-connected"
-    )
+    return {
+        "filename": file.filename,
+        "status": "analyzed",
+        "prediction": "PENDING_MODEL",
+        "confidence": 0.0,
+        "message": "Audio received successfully. AI detection model integration is next."
+    }
