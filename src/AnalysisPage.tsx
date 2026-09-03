@@ -55,7 +55,7 @@ export default function AnalysisPage() {
     formData.append('file', file)
     
     try {
-      const res = await axios.post('http://localhost:8000/api/analyze', formData, {
+      const res = await axios.post('http://localhost:8000/api/analysis/analyze', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       })
       setResult(res.data)
