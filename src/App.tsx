@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react'
-import { Shield, BarChart3, FileAudio, AlertCircle } from 'lucide-react'
+import {
+  Shield,
+  BarChart3,
+  FileAudio,
+  AlertCircle,
+  ShieldAlert
+} from 'lucide-react'
 import Dashboard from "./Dashboard";
 import AnalysisPage from "./AnalysisPage";
+import IncidentsPage from "./IncidentsPage";
 import axios from 'axios'
 
 type Page = 'dashboard' | 'analyze' | 'incidents' | 'analytics'
@@ -67,10 +74,11 @@ export default function App() {
           </div>
         )}
 
-        <div className="grid grid-cols-4 gap-4 mb-8">
+        <div className="grid grid-cols-3 gap-4 mb-8">
           {[
-            { id: 'dashboard' as Page, label: 'Dashboard', icon: BarChart3 },
-            { id: 'analyze' as Page, label: 'Analyze Voice', icon: FileAudio },
+  { id: 'dashboard' as Page, label: 'Dashboard', icon: BarChart3 },
+  { id: 'analyze' as Page, label: 'Analyze Voice', icon: FileAudio },
+  { id: 'incidents' as Page, label: 'Incidents', icon: ShieldAlert },
           ].map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -89,6 +97,7 @@ export default function App() {
 
         {currentPage === 'dashboard' && <Dashboard />}
         {currentPage === 'analyze' && <AnalysisPage />}
+        {currentPage === 'incidents' && <IncidentsPage />}
       </div>
     </div>
   )
