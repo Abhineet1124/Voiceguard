@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import {
   AlertTriangle,
@@ -7,6 +7,11 @@ import {
   Clock,
   Fingerprint,
   RefreshCw,
+  Activity,
+  Ban,
+  CheckCircle2,
+  Search,
+  ChevronDown,
 } from "lucide-react";
 
 interface Incident {
@@ -26,6 +31,8 @@ interface Incident {
 export default function IncidentsPage() {
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [riskFilter, setRiskFilter] = useState("all");
 
   const fetchIncidents = async () => {
     try {
@@ -49,250 +56,463 @@ export default function IncidentsPage() {
     return () => clearInterval(interval);
   }, []);
 
+  const summary = useMemo(() => {
+    const highCritical = incidents.filter(
+      (incident) =>
+        incident.risk_level.toLowerCase() === "high" ||
+        incident.risk_level.toLowerCase() === "critical"
+    ).length;
+
+    const protectionActions = incidents.filter(
+      (incident) =>
+        incident.action.toLowerCase() === "alert" ||
+        incident.action.toLowerCase() === "block" ||
+        incident.action.toLowerCase() === "verify"
+    ).length;
+
+    const blocked = incidents.filter(
+      (incident) => incident.action.toLowerCase() === "block"
+    ).length;
+
+    return {
+      total: incidents.length,
+      highCritical,
+      protectionActions,
+      blocked,
+    };
+  }, [incidents]);
+
+  const filteredIncidents = useMemo(() => {
+    return incidents.filter((incident) => {
+      const matchesSearch =
+        incident.incident_id
+          .toLowerCase()
+          .includes(search.toLowerCase()) ||
+        incident.filename
+          .toLowerCase()
+          .includes(search.toLowerCase()) ||
+        incident.incident_type
+          .toLowerCase()
+          .includes(search.toLowerCase());
+
+      const matchesRisk =
+        riskFilter === "all" ||
+        incident.risk_level.toLowerCase() === riskFilter;
+
+      return matchesSearch && matchesRisk;
+    });
+  }, [incidents, search, riskFilter]);
+
   const getRiskClass = (risk: string) => {
     switch (risk.toLowerCase()) {
       case "critical":
-        return "bg-red-500/20 text-red-400 border-red-500/30";
+        return "incident-risk-critical";
+
       case "high":
-        return "bg-orange-500/20 text-orange-400 border-orange-500/30";
+        return "incident-risk-high";
+
       case "medium":
-        return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+        return "incident-risk-medium";
+
       default:
-        return "bg-green-500/20 text-green-400 border-green-500/30";
+        return "incident-risk-low";
+    }
+  };
+
+  const getActionClass = (action: string) => {
+    switch (action.toLowerCase()) {
+      case "block":
+        return "incident-action-block";
+
+      case "alert":
+        return "incident-action-alert";
+
+      case "verify":
+        return "incident-action-verify";
+
+      default:
+        return "incident-action-allow";
     }
   };
 
   const getActionIcon = (action: string) => {
     switch (action.toLowerCase()) {
       case "block":
+        return <Ban size={16} />;
+
       case "alert":
-        return <ShieldAlert className="w-4 h-4" />;
+        return <ShieldAlert size={16} />;
+
       case "verify":
-        return <AlertTriangle className="w-4 h-4" />;
+        return <AlertTriangle size={16} />;
+
       default:
-        return <ShieldCheck className="w-4 h-4" />;
+        return <ShieldCheck size={16} />;
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div className="incidents-page">
 
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* PAGE HEADER */}
+      <div className="incidents-header">
+
         <div>
-          <h2 className="text-2xl font-bold text-white">
-            Security Incidents
-          </h2>
+          <div className="incidents-eyebrow">
+            <Activity size={14} />
+            SECURITY EVENT MONITOR
+          </div>
 
-          <p className="text-sm text-slate-400 mt-1">
-            Voice analysis events and security decisions
+          <h1 className="incidents-title">
+            Security Incidents
+          </h1>
+
+          <p className="incidents-subtitle">
+            Monitor voice-analysis events, threat classifications,
+            and automated security decisions.
           </p>
         </div>
 
         <button
           onClick={fetchIncidents}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg
-                     bg-slate-800 border border-slate-700
-                     hover:border-cyan-500 transition-colors"
+          className="incidents-refresh"
         >
-          <RefreshCw className="w-4 h-4" />
+          <RefreshCw
+            size={16}
+            className={loading ? "incident-spin" : ""}
+          />
           Refresh
         </button>
+
       </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-3 gap-4">
+      {/* SECURITY STATUS STRIP */}
+      <div className="incident-status-strip">
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <p className="text-sm text-slate-400">Total Events</p>
-          <p className="text-3xl font-bold text-white mt-2">
-            {incidents.length}
-          </p>
+        <div className="incident-status-left">
+          <span className="incident-status-dot"></span>
+
+          <div>
+            <strong>INCIDENT MONITORING ACTIVE</strong>
+            <span>
+              Live security event synchronization enabled
+            </span>
+          </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <p className="text-sm text-slate-400">High / Critical</p>
-          <p className="text-3xl font-bold text-red-400 mt-2">
-            {
-              incidents.filter(
-                (i) =>
-                  i.risk_level === "high" ||
-                  i.risk_level === "critical"
-              ).length
-            }
-          </p>
-        </div>
-
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <p className="text-sm text-slate-400">Protection Actions</p>
-          <p className="text-3xl font-bold text-cyan-400 mt-2">
-            {
-              incidents.filter(
-                (i) =>
-                  i.action === "alert" ||
-                  i.action === "block" ||
-                  i.action === "verify"
-              ).length
-            }
-          </p>
+        <div className="incident-live">
+          <span></span>
+          LIVE
         </div>
 
       </div>
 
-      {/* Incidents */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+      {/* SUMMARY CARDS */}
+      <div className="incident-summary-grid">
 
-        <div className="px-6 py-4 border-b border-slate-800">
-          <h3 className="font-semibold text-white">
-            Incident Log
-          </h3>
+        <div className="incident-stat-card">
+          <div className="incident-stat-icon neutral">
+            <Activity size={20} />
+          </div>
+
+          <div>
+            <span>Total Events</span>
+            <strong>{summary.total}</strong>
+          </div>
+
+          <small>Recorded incidents</small>
         </div>
 
+        <div className="incident-stat-card danger">
+          <div className="incident-stat-icon danger">
+            <ShieldAlert size={20} />
+          </div>
+
+          <div>
+            <span>High / Critical</span>
+            <strong>{summary.highCritical}</strong>
+          </div>
+
+          <small>Priority threats</small>
+        </div>
+
+        <div className="incident-stat-card cyan">
+          <div className="incident-stat-icon cyan">
+            <ShieldCheck size={20} />
+          </div>
+
+          <div>
+            <span>Protection Actions</span>
+            <strong>{summary.protectionActions}</strong>
+          </div>
+
+          <small>Automated decisions</small>
+        </div>
+
+        <div className="incident-stat-card warning">
+          <div className="incident-stat-icon warning">
+            <Ban size={20} />
+          </div>
+
+          <div>
+            <span>Blocked</span>
+            <strong>{summary.blocked}</strong>
+          </div>
+
+          <small>Blocked events</small>
+        </div>
+
+      </div>
+
+      {/* INCIDENT LOG */}
+      <div className="incident-panel">
+
+        <div className="incident-panel-header">
+
+          <div>
+            <div className="incident-panel-title">
+              <div className="incident-panel-title-icon">
+                <ShieldAlert size={17} />
+              </div>
+
+              Incident Log
+            </div>
+
+            <p>
+              Security events generated by the VoiceGuard analysis engine
+            </p>
+          </div>
+
+          <div className="incident-count">
+            {filteredIncidents.length} EVENTS
+          </div>
+
+        </div>
+
+        {/* FILTER BAR */}
+        <div className="incident-filter-bar">
+
+          <div className="incident-search">
+            <Search size={16} />
+
+            <input
+              type="text"
+              placeholder="Search incident, file or event type..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+
+          <div className="incident-filter">
+
+            <select
+              value={riskFilter}
+              onChange={(event) => setRiskFilter(event.target.value)}
+            >
+              <option value="all">All Risk Levels</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+
+            <ChevronDown size={15} />
+
+          </div>
+
+        </div>
+
+        {/* LOADING */}
         {loading ? (
-          <div className="p-10 text-center text-slate-400">
-            Loading security incidents...
+          <div className="incident-empty">
+
+            <RefreshCw
+              size={30}
+              className="incident-spin"
+            />
+
+            <h3>Loading security incidents</h3>
+
+            <p>
+              Synchronizing with the VoiceGuard security engine...
+            </p>
+
           </div>
+
         ) : incidents.length === 0 ? (
-          <div className="p-12 text-center">
 
-            <ShieldCheck className="w-12 h-12 mx-auto text-green-500 mb-4" />
+          /* NO INCIDENTS */
+          <div className="incident-empty">
 
-            <p className="text-white font-medium">
-              No security incidents
-            </p>
+            <div className="incident-empty-icon safe">
+              <ShieldCheck size={38} />
+            </div>
 
-            <p className="text-sm text-slate-400 mt-1">
-              Analyze an audio file to generate a security event.
+            <h3>No security incidents</h3>
+
+            <p>
+              Analyze an audio recording to generate a security event.
             </p>
 
           </div>
+
+        ) : filteredIncidents.length === 0 ? (
+
+          /* NO SEARCH RESULTS */
+          <div className="incident-empty">
+
+            <div className="incident-empty-icon">
+              <Search size={34} />
+            </div>
+
+            <h3>No matching incidents</h3>
+
+            <p>
+              Try changing your search text or risk filter.
+            </p>
+
+          </div>
+
         ) : (
 
-          <div className="divide-y divide-slate-800">
+          /* INCIDENT LIST */
+          <div className="incident-list">
 
-            {incidents.map((incident) => (
+            {filteredIncidents.map((incident) => (
 
               <div
                 key={incident.incident_id}
-                className="p-6 hover:bg-slate-800/40 transition-colors"
+                className="incident-item"
               >
 
-                <div className="flex items-start justify-between gap-6">
+                {/* INCIDENT TOP */}
+                <div className="incident-item-top">
 
-                  {/* Left */}
-                  <div className="flex items-start gap-4">
+                  <div className="incident-main">
 
-                    <div className="p-3 rounded-lg bg-slate-800">
+                    <div
+                      className={
+                        "incident-action-icon " +
+                        getActionClass(incident.action)
+                      }
+                    >
                       {getActionIcon(incident.action)}
                     </div>
 
-                    <div>
+                    <div className="incident-identity">
 
-                      <div className="flex items-center gap-3">
+                      <div className="incident-id-row">
 
-                        <h4 className="font-semibold text-white">
+                        <h3>
                           {incident.incident_id}
-                        </h4>
+                        </h3>
 
                         <span
-                          className={`px-2 py-1 text-xs rounded-full border uppercase ${getRiskClass(
-                            incident.risk_level
-                          )}`}
+                          className={
+                            "incident-risk " +
+                            getRiskClass(incident.risk_level)
+                          }
                         >
                           {incident.risk_level}
                         </span>
 
                       </div>
 
-                      <p className="text-sm text-slate-400 mt-1">
+                      <p className="incident-type">
                         {incident.incident_type}
                       </p>
 
-                      <p className="text-sm text-slate-300 mt-3">
-                        Audio:{" "}
-                        <span className="text-slate-400">
-                          {incident.filename}
-                        </span>
+                      <p className="incident-file">
+                        <span>Audio</span>
+                        {incident.filename}
                       </p>
 
                     </div>
 
                   </div>
 
-                  {/* Action */}
-                  <div className="text-right">
+                  <div className="incident-action">
 
-                    <p className="text-xs text-slate-500 uppercase">
-                      Security Action
-                    </p>
+                    <span>SECURITY ACTION</span>
 
-                    <p className="text-lg font-bold text-cyan-400 uppercase mt-1">
+                    <strong>
                       {incident.action}
-                    </p>
+                    </strong>
 
                   </div>
 
                 </div>
 
-                {/* Details */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+                {/* METRICS */}
+                <div className="incident-metrics">
 
-                  <div>
-                    <p className="text-xs text-slate-500">
-                      Confidence
-                    </p>
+                  <div className="incident-metric">
 
-                    <p className="text-sm text-white mt-1">
+                    <span>CONFIDENCE</span>
+
+                    <strong>
                       {(incident.confidence * 100).toFixed(1)}%
-                    </p>
+                    </strong>
+
+                    <div className="incident-meter">
+                      <div
+                        style={{
+                          width:
+                            incident.confidence * 100 + "%",
+                        }}
+                      />
+                    </div>
+
                   </div>
 
-                  <div>
-                    <p className="text-xs text-slate-500">
-                      Anomaly Score
-                    </p>
+                  <div className="incident-metric">
 
-                    <p className="text-sm text-white mt-1">
+                    <span>ANOMALY SCORE</span>
+
+                    <strong>
                       {incident.anomaly_score}
-                    </p>
+                    </strong>
+
                   </div>
 
-                  <div>
-                    <p className="text-xs text-slate-500">
-                      Status
-                    </p>
+                  <div className="incident-metric">
 
-                    <p className="text-sm text-white mt-1 uppercase">
+                    <span>STATUS</span>
+
+                    <strong className="incident-status-value">
+                      <CheckCircle2 size={14} />
                       {incident.status}
-                    </p>
+                    </strong>
+
                   </div>
 
-                  <div>
-                    <p className="text-xs text-slate-500 flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      Created
-                    </p>
+                  <div className="incident-metric">
 
-                    <p className="text-sm text-white mt-1">
+                    <span>CREATED</span>
+
+                    <strong className="incident-created">
+                      <Clock size={14} />
+
                       {new Date(
                         incident.created_at
                       ).toLocaleString()}
-                    </p>
+                    </strong>
+
                   </div>
 
                 </div>
 
-                {/* Hash */}
-                <div className="mt-5 p-3 bg-slate-950 rounded-lg border border-slate-800">
+                {/* HASH */}
+                <div className="incident-hash">
 
-                  <p className="text-xs text-slate-500 flex items-center gap-2 mb-1">
-                    <Fingerprint className="w-3 h-3" />
-                    SHA-256 Audio Fingerprint
-                  </p>
+                  <div className="incident-hash-title">
+                    <Fingerprint size={14} />
+                    SHA-256 AUDIO FINGERPRINT
+                  </div>
 
-                  <p className="text-xs text-slate-400 break-all font-mono">
+                  <code>
                     {incident.audio_sha256}
-                  </p>
+                  </code>
 
                 </div>
 
@@ -301,18 +521,19 @@ export default function IncidentsPage() {
             ))}
 
           </div>
-
         )}
 
       </div>
 
-      {/* Prototype disclaimer */}
-      <div className="p-4 rounded-lg bg-cyan-950/30 border border-cyan-900/50">
+      {/* DISCLAIMER */}
+      <div className="incident-disclaimer">
 
-        <p className="text-xs text-cyan-300">
-          Development-stage incident monitoring. SHA-256 provides an
-          integrity fingerprint for the analyzed audio; it does not by
-          itself prove that a voice recording is authentic.
+        <ShieldCheck size={16} />
+
+        <p>
+          Development-stage incident monitoring. SHA-256 provides
+          an integrity fingerprint for analyzed audio; it does not
+          independently prove that a voice recording is authentic.
         </p>
 
       </div>

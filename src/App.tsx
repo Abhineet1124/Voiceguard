@@ -14,8 +14,13 @@ import {
 import Dashboard from "./Dashboard";
 import AnalysisPage from "./AnalysisPage";
 import IncidentsPage from "./IncidentsPage";
+import AnalyticsPage from "./AnalyticsPage";
 
-type Page = "dashboard" | "analyze" | "incidents" | "analytics";
+type Page =
+  | "dashboard"
+  | "analyze"
+  | "incidents"
+  | "analytics";
 
 interface HealthStatus {
   status: string;
@@ -42,6 +47,12 @@ const navigation = [
     label: "Incidents",
     description: "Security events",
     icon: ShieldAlert,
+  },
+  {
+    id: "analytics" as Page,
+    label: "Analytics",
+    description: "Security intelligence",
+    icon: BarChart3,
   },
 ];
 
@@ -94,44 +105,54 @@ export default function App() {
   };
 
   const renderPage = () => {
-    if (currentPage === "dashboard") {
-      return <Dashboard />;
+    switch (currentPage) {
+      case "dashboard":
+        return <Dashboard />;
+
+      case "analyze":
+        return <AnalysisPage />;
+
+      case "incidents":
+        return <IncidentsPage />;
+
+      case "analytics":
+        return <AnalyticsPage />;
+
+      default:
+        return <Dashboard />;
     }
+  };
 
-    if (currentPage === "analyze") {
-      return <AnalysisPage />;
+  const getPageTitle = () => {
+    switch (currentPage) {
+      case "dashboard":
+        return "Dashboard";
+
+      case "analyze":
+        return "Analyze Voice";
+
+      case "incidents":
+        return "Incidents";
+
+      case "analytics":
+        return "Analytics";
+
+      default:
+        return "Dashboard";
     }
-
-    if (currentPage === "incidents") {
-      return <IncidentsPage />;
-    }
-
-    return (
-      <div className="dashboard-panel p-8">
-        <div className="dashboard-eyebrow">
-          ANALYTICS
-        </div>
-
-        <h2 className="text-2xl font-bold text-white">
-          Analytics Center
-        </h2>
-
-        <p className="mt-2 text-sm text-slate-400">
-          Advanced analytics will be available
-          after the detection pipeline is fully
-          integrated.
-        </p>
-      </div>
-    );
   };
 
   return (
     <div className="app-shell">
 
-      {/* Mobile Header */}
+      {/* =====================================================
+          MOBILE HEADER
+      ====================================================== */}
+
       <header className="mobile-header">
 
         <div className="mobile-brand">
+
           <div className="brand-logo">
             <Shield size={21} />
           </div>
@@ -145,15 +166,15 @@ export default function App() {
               Detect. Verify. Prevent.
             </div>
           </div>
+
         </div>
 
         <button
           className="mobile-menu-button"
           onClick={() =>
-            setMobileMenuOpen(
-              !mobileMenuOpen
-            )
+            setMobileMenuOpen(!mobileMenuOpen)
           }
+          aria-label="Toggle navigation"
         >
           {mobileMenuOpen ? (
             <X size={21} />
@@ -164,7 +185,11 @@ export default function App() {
 
       </header>
 
-      {/* Sidebar */}
+
+      {/* =====================================================
+          SIDEBAR
+      ====================================================== */}
+
       <aside
         className={
           "app-sidebar " +
@@ -175,6 +200,7 @@ export default function App() {
       >
 
         {/* Brand */}
+
         <div className="sidebar-brand">
 
           <div className="brand-logo">
@@ -193,7 +219,9 @@ export default function App() {
 
         </div>
 
+
         {/* Navigation */}
+
         <div className="sidebar-section">
 
           <div className="sidebar-section-title">
@@ -232,10 +260,15 @@ export default function App() {
                     </div>
 
                     <div className="sidebar-nav-text">
-                      <span>{label}</span>
+
+                      <span>
+                        {label}
+                      </span>
+
                       <small>
                         {description}
                       </small>
+
                     </div>
 
                     {active && (
@@ -251,7 +284,9 @@ export default function App() {
 
         </div>
 
+
         {/* System Status */}
+
         <div className="sidebar-bottom">
 
           <div className="sidebar-system-card">
@@ -267,6 +302,7 @@ export default function App() {
               </span>
 
             </div>
+
 
             <div className="sidebar-status-row">
 
@@ -286,11 +322,14 @@ export default function App() {
 
             </div>
 
+
             {health && (
               <div className="sidebar-health-details">
 
                 <div>
-                  <span>Database</span>
+                  <span>
+                    Database
+                  </span>
 
                   <strong>
                     {health.database}
@@ -298,7 +337,9 @@ export default function App() {
                 </div>
 
                 <div>
-                  <span>Model</span>
+                  <span>
+                    Model
+                  </span>
 
                   <strong>
                     {health.model_status}
@@ -306,7 +347,9 @@ export default function App() {
                 </div>
 
                 <div>
-                  <span>Version</span>
+                  <span>
+                    Version
+                  </span>
 
                   <strong>
                     {health.version}
@@ -318,21 +361,33 @@ export default function App() {
 
           </div>
 
+
           <div className="sidebar-footer">
+
             <Activity size={13} />
+
             <span>
               VOICEGUARD SECURITY PLATFORM
             </span>
+
           </div>
 
         </div>
 
       </aside>
 
-      {/* Main Area */}
+
+      {/* =====================================================
+          MAIN APPLICATION
+      ====================================================== */}
+
       <div className="app-main">
 
-        {/* Top Bar */}
+
+        {/* ===================================================
+            TOP BAR
+        ==================================================== */}
+
         <div className="app-topbar">
 
           <div className="topbar-page-info">
@@ -346,16 +401,11 @@ export default function App() {
             </span>
 
             <span className="topbar-current">
-              {currentPage === "dashboard"
-                ? "Dashboard"
-                : currentPage === "analyze"
-                ? "Analyze Voice"
-                : currentPage === "incidents"
-                ? "Incidents"
-                : "Analytics"}
+              {getPageTitle()}
             </span>
 
           </div>
+
 
           <div className="topbar-status">
 
@@ -377,7 +427,11 @@ export default function App() {
 
         </div>
 
-        {/* Connection Warning */}
+
+        {/* ===================================================
+            CONNECTION WARNING
+        ==================================================== */}
+
         {!connected && (
           <div className="connection-warning">
 
@@ -386,6 +440,7 @@ export default function App() {
             </div>
 
             <div>
+
               <strong>
                 Backend connection unavailable
               </strong>
@@ -394,19 +449,28 @@ export default function App() {
                 Make sure FastAPI is running on
                 localhost:8000.
               </p>
+
             </div>
 
           </div>
         )}
 
-        {/* Page */}
+
+        {/* ===================================================
+            CURRENT PAGE
+        ==================================================== */}
+
         <main className="app-page">
           {renderPage()}
         </main>
 
       </div>
 
-      {/* Mobile Overlay */}
+
+      {/* =====================================================
+          MOBILE OVERLAY
+      ====================================================== */}
+
       {mobileMenuOpen && (
         <button
           className="sidebar-overlay"
