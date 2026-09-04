@@ -15,13 +15,18 @@ import {
 interface Analysis {
   analysis_id: string;
   filename: string;
-  classification: string;
+  prediction: string;
   confidence: number;
-  anomaly_score: number;
+  risk_score: number;
   risk_level: string;
-  action: string;
+  security_action: string;
   created_at: string;
+  real_probability?: number;
+  synthetic_probability?: number;
+  duration_seconds?: number;
 }
+
+const API_URL = "http://localhost:8000/api";
 
 export default function AnalyticsPage() {
   const [analyses, setAnalyses] = useState<Analysis[]>([]);
@@ -30,12 +35,19 @@ export default function AnalyticsPage() {
   const fetchAnalytics = async () => {
     try {
       const response = await axios.get(
-        "http://localhost:8000/api/analyses?limit=100"
+        `${API_URL}/analyses?limit=100`
       );
 
-      setAnalyses(response.data.analyses || []);
+      const data = response.data;
+
+      if (Array.isArray(data?.analyses)) {
+        setAnalyses(data.analyses);
+      } else {
+        setAnalyses([]);
+      }
     } catch (error) {
       console.error("Failed to load analytics:", error);
+      setAnalyses([]);
     } finally {
       setLoading(false);
     }
@@ -52,35 +64,46 @@ export default function AnalyticsPage() {
   const metrics = useMemo(() => {
     const total = analyses.length;
 
-    const genuine = analyses.filter(
-      (item) => item.classification.toLowerCase() === "real"
-    ).length;
+    const genuine = analyses.filter((item) => {
+      return (
+        String(item.prediction || "").toLowerCase() === "real"
+      );
+    }).length;
 
-    const suspicious = analyses.filter(
-      (item) =>
-        item.classification.toLowerCase() === "fake" ||
-        item.classification.toLowerCase() === "synthetic" ||
-        item.classification.toLowerCase() === "cloned"
-    ).length;
+    const suspicious = analyses.filter((item) => {
+      const prediction = String(
+        item.prediction || ""
+      ).toLowerCase();
 
-    const highRisk = analyses.filter(
-      (item) =>
-        item.risk_level.toLowerCase() === "high" ||
-        item.risk_level.toLowerCase() === "critical"
-    ).length;
+      return (
+        prediction === "synthetic" ||
+        prediction === "fake" ||
+        prediction === "cloned"
+      );
+    }).length;
+
+    const highRisk = analyses.filter((item) => {
+      const risk = String(
+        item.risk_level || ""
+      ).toLowerCase();
+
+      return risk === "high" || risk === "critical";
+    }).length;
 
     const averageConfidence =
       total > 0
         ? analyses.reduce(
-            (sum, item) => sum + Number(item.confidence || 0),
+            (sum, item) =>
+              sum + Number(item.confidence || 0),
             0
           ) / total
         : 0;
 
-    const averageAnomaly =
+    const averageRisk =
       total > 0
         ? analyses.reduce(
-            (sum, item) => sum + Number(item.anomaly_score || 0),
+            (sum, item) =>
+              sum + Number(item.risk_score || 0),
             0
           ) / total
         : 0;
@@ -91,26 +114,30 @@ export default function AnalyticsPage() {
       suspicious,
       highRisk,
       averageConfidence,
-      averageAnomaly,
+      averageRisk,
     };
   }, [analyses]);
 
   const riskCounts = useMemo(() => {
     return {
       low: analyses.filter(
-        (item) => item.risk_level.toLowerCase() === "low"
+        (item) =>
+          String(item.risk_level || "").toLowerCase() === "low"
       ).length,
 
       medium: analyses.filter(
-        (item) => item.risk_level.toLowerCase() === "medium"
+        (item) =>
+          String(item.risk_level || "").toLowerCase() === "medium"
       ).length,
 
       high: analyses.filter(
-        (item) => item.risk_level.toLowerCase() === "high"
+        (item) =>
+          String(item.risk_level || "").toLowerCase() === "high"
       ).length,
 
       critical: analyses.filter(
-        (item) => item.risk_level.toLowerCase() === "critical"
+        (item) =>
+          String(item.risk_level || "").toLowerCase() === "critical"
       ).length,
     };
   }, [analyses]);
@@ -119,7 +146,7 @@ export default function AnalyticsPage() {
     const result: Record<string, number> = {};
 
     analyses.forEach((item) => {
-      const label = item.classification || "unknown";
+      const label = item.prediction || "unknown";
       result[label] = (result[label] || 0) + 1;
     });
 
@@ -130,7 +157,7 @@ export default function AnalyticsPage() {
     const result: Record<string, number> = {};
 
     analyses.forEach((item) => {
-      const action = item.action || "unknown";
+      const action = item.security_action || "unknown";
       result[action] = (result[action] || 0) + 1;
     });
 
@@ -142,13 +169,14 @@ export default function AnalyticsPage() {
       return 0;
     }
 
-    return Math.round((value / analyses.length) * 100);
+    return Math.round(
+      (value / analyses.length) * 100
+    );
   };
 
   return (
     <div className="analytics-page">
 
-      {/* HEADER */}
       <div className="analytics-header">
 
         <div>
@@ -177,10 +205,8 @@ export default function AnalyticsPage() {
           />
           Refresh
         </button>
-
       </div>
 
-      {/* LIVE STATUS */}
       <div className="analytics-status-strip">
 
         <div className="analytics-status-main">
@@ -190,7 +216,7 @@ export default function AnalyticsPage() {
             <strong>ANALYTICS ENGINE ACTIVE</strong>
 
             <span>
-              Processing live VoiceGuard analysis records
+              Processing live VoiceGuard PostgreSQL records
             </span>
           </div>
         </div>
@@ -199,87 +225,67 @@ export default function AnalyticsPage() {
           <span></span>
           LIVE DATA
         </div>
-
       </div>
 
-      {/* KPI CARDS */}
       <div className="analytics-kpi-grid">
 
         <div className="analytics-kpi">
-
           <div className="analytics-kpi-icon">
             <Database size={20} />
           </div>
 
           <span>Total Analyses</span>
 
-          <strong>
-            {metrics.total}
-          </strong>
+          <strong>{metrics.total}</strong>
 
           <small>
             Audio samples processed
           </small>
-
         </div>
 
         <div className="analytics-kpi cyan">
-
           <div className="analytics-kpi-icon">
             <ShieldCheck size={20} />
           </div>
 
           <span>Genuine</span>
 
-          <strong>
-            {metrics.genuine}
-          </strong>
+          <strong>{metrics.genuine}</strong>
 
           <small>
             {getPercentage(metrics.genuine)}% of analyses
           </small>
-
         </div>
 
         <div className="analytics-kpi danger">
-
           <div className="analytics-kpi-icon">
             <ShieldAlert size={20} />
           </div>
 
           <span>Suspicious</span>
 
-          <strong>
-            {metrics.suspicious}
-          </strong>
+          <strong>{metrics.suspicious}</strong>
 
           <small>
             {getPercentage(metrics.suspicious)}% of analyses
           </small>
-
         </div>
 
         <div className="analytics-kpi warning">
-
           <div className="analytics-kpi-icon">
             <AlertTriangle size={20} />
           </div>
 
           <span>High Risk</span>
 
-          <strong>
-            {metrics.highRisk}
-          </strong>
+          <strong>{metrics.highRisk}</strong>
 
           <small>
             High + critical events
           </small>
-
         </div>
-
       </div>
 
-      {/* PERFORMANCE ROW */}
       <div className="analytics-performance-grid">
 
         <div className="analytics-performance-card">
@@ -315,35 +321,40 @@ export default function AnalyticsPage() {
                 <div
                   style={{
                     width:
-                      metrics.averageConfidence * 100 + "%",
+                      Math.min(
+                        Math.max(
+                          metrics.averageConfidence,
+                          0
+                        ),
+                        1
+                      ) *
+                        100 +
+                      "%",
                   }}
                 />
               </div>
-
             </div>
-
           </div>
-
         </div>
 
         <div className="analytics-performance-card">
 
           <div className="analytics-card-heading">
             <div>
-              <span>ANOMALY DETECTION</span>
-              <h3>Average Anomaly Score</h3>
+              <span>RISK ENGINE</span>
+              <h3>Average Risk Score</h3>
             </div>
 
             <TrendingUp size={19} />
           </div>
 
           <div className="analytics-anomaly-value">
-            {metrics.averageAnomaly.toFixed(3)}
+            {metrics.averageRisk.toFixed(3)}
           </div>
 
           <p className="analytics-description">
-            Average acoustic anomaly score calculated by the current
-            development-stage detection pipeline.
+            Average normalized risk score generated by the current
+            development-stage VoiceGuard decision engine.
           </p>
 
           <div className="analytics-score-scale">
@@ -354,7 +365,10 @@ export default function AnalyticsPage() {
                 style={{
                   width:
                     Math.min(
-                      Math.max(metrics.averageAnomaly, 0),
+                      Math.max(
+                        metrics.averageRisk,
+                        0
+                      ),
                       1
                     ) *
                       100 +
@@ -365,15 +379,11 @@ export default function AnalyticsPage() {
 
             <span>1.0</span>
           </div>
-
         </div>
-
       </div>
 
-      {/* DISTRIBUTION */}
       <div className="analytics-section-grid">
 
-        {/* RISK */}
         <div className="analytics-panel">
 
           <div className="analytics-panel-header">
@@ -388,7 +398,6 @@ export default function AnalyticsPage() {
           <div className="analytics-bars">
 
             <div className="analytics-bar-row">
-
               <div className="analytics-bar-label">
                 <span className="analytics-dot low"></span>
                 Low
@@ -408,11 +417,9 @@ export default function AnalyticsPage() {
               <span>
                 {getPercentage(riskCounts.low)}%
               </span>
-
             </div>
 
             <div className="analytics-bar-row">
-
               <div className="analytics-bar-label">
                 <span className="analytics-dot medium"></span>
                 Medium
@@ -432,11 +439,9 @@ export default function AnalyticsPage() {
               <span>
                 {getPercentage(riskCounts.medium)}%
               </span>
-
             </div>
 
             <div className="analytics-bar-row">
-
               <div className="analytics-bar-label">
                 <span className="analytics-dot high"></span>
                 High
@@ -456,11 +461,9 @@ export default function AnalyticsPage() {
               <span>
                 {getPercentage(riskCounts.high)}%
               </span>
-
             </div>
 
             <div className="analytics-bar-row">
-
               <div className="analytics-bar-label">
                 <span className="analytics-dot critical"></span>
                 Critical
@@ -480,14 +483,11 @@ export default function AnalyticsPage() {
               <span>
                 {getPercentage(riskCounts.critical)}%
               </span>
-
             </div>
 
           </div>
-
         </div>
 
-        {/* CLASSIFICATION */}
         <div className="analytics-panel">
 
           <div className="analytics-panel-header">
@@ -500,29 +500,22 @@ export default function AnalyticsPage() {
           </div>
 
           {Object.keys(classificationCounts).length === 0 ? (
-
             <div className="analytics-no-data">
               No classification data available.
             </div>
-
           ) : (
-
             <div className="analytics-classification-list">
 
               {Object.entries(classificationCounts).map(
                 ([label, count]) => (
-
                   <div
                     key={label}
                     className="analytics-classification-item"
                   >
-
                     <div>
                       <span>{label}</span>
 
-                      <strong>
-                        {count}
-                      </strong>
+                      <strong>{count}</strong>
                     </div>
 
                     <div className="analytics-mini-bar">
@@ -533,86 +526,66 @@ export default function AnalyticsPage() {
                         }}
                       />
                     </div>
-
                   </div>
-
                 )
               )}
 
             </div>
-
           )}
-
         </div>
-
       </div>
 
-      {/* SECURITY ACTIONS */}
       <div className="analytics-panel analytics-actions-panel">
 
         <div className="analytics-panel-header">
-
           <div>
             <span>DECISION ENGINE</span>
             <h3>Security Actions</h3>
           </div>
 
           <ShieldCheck size={18} />
-
         </div>
 
         <div className="analytics-actions-grid">
 
           {Object.keys(actionCounts).length === 0 ? (
-
             <div className="analytics-no-data">
               No security action data available.
             </div>
-
           ) : (
-
             Object.entries(actionCounts).map(
               ([action, count]) => (
-
                 <div
                   key={action}
                   className="analytics-action-card"
                 >
-
                   <div className="analytics-action-icon">
                     <ShieldCheck size={17} />
                   </div>
 
                   <div>
-                    <span>
-                      {action}
-                    </span>
+                    <span>{action}</span>
 
-                    <strong>
-                      {count}
-                    </strong>
+                    <strong>{count}</strong>
 
                     <small>
                       {getPercentage(count)}% of decisions
                     </small>
                   </div>
-
                 </div>
-
               )
             )
-
           )}
 
         </div>
-
       </div>
 
-      {/* EMPTY / LOADING */}
       {loading && analyses.length === 0 ? (
-
         <div className="analytics-loading">
-          <RefreshCw className="analytics-spin" size={28} />
+          <RefreshCw
+            className="analytics-spin"
+            size={28}
+          />
 
           <h3>Loading analytics</h3>
 
@@ -620,12 +593,9 @@ export default function AnalyticsPage() {
             Connecting to the VoiceGuard analysis engine...
           </p>
         </div>
-
       ) : null}
 
-      {/* DISCLAIMER */}
       <div className="analytics-disclaimer">
-
         <ShieldCheck size={16} />
 
         <p>
@@ -633,7 +603,6 @@ export default function AnalyticsPage() {
           development-stage detection pipeline. Metrics should
           not be interpreted as production-grade model validation.
         </p>
-
       </div>
 
     </div>
