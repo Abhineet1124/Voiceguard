@@ -1,375 +1,766 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
 import {
   Activity,
-  CheckCircle,
   AlertTriangle,
-  ShieldAlert,
-  Server,
   BrainCircuit,
+  CheckCircle,
   Lock,
   RefreshCw,
-} from "lucide-react"
-import axios from "axios"
+  Server,
+  ShieldAlert,
+} from "lucide-react";
 
-interface Analysis {
-  id: string
-  filename: string
-  label: string
-  confidence: number
-  risk_level: string
-  action: string
-  processing_time: number
-  model_version: string
-  created_at?: string
-}
+type Analysis = {
+  id?: string;
+  filename?: string;
+  label?: string;
+  confidence?: number;
+  risk_level?: string;
+  risk?: string;
+  action?: string;
+  created_at?: string;
+  timestamp?: string;
+};
 
-interface AnalysisResponse {
-  analyses: Analysis[]
-  total: number
-  limit: number
-}
+const API_URL = "http://localhost:8000";
 
 export default function Dashboard() {
-  const [analyses, setAnalyses] = useState<Analysis[]>([])
-  const [loading, setLoading] = useState(true)
+  const [analyses, setAnalyses] = useState<Analysis[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  const loadAnalyses = async () => {
+  const fetchAnalyses = async () => {
     try {
-      const response = await axios.get<AnalysisResponse>(
-        "http://localhost:8000/api/analyses?limit=100"
-      )
+      setLoading(true);
 
-      setAnalyses(response.data.analyses || [])
+      const response = await axios.get(
+        API_URL + "/api/analyses?limit=100"
+      );
+
+      const data = response.data;
+
+      if (Array.isArray(data)) {
+        setAnalyses(data);
+      } else if (Array.isArray(data?.analyses)) {
+        setAnalyses(data.analyses);
+      } else if (Array.isArray(data?.items)) {
+        setAnalyses(data.items);
+      } else {
+        setAnalyses([]);
+      }
+
+      setLastUpdated(new Date());
     } catch (error) {
-      console.error("Failed to load analyses:", error)
+      console.error("Failed to fetch analyses:", error);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
-    loadAnalyses()
+    fetchAnalyses();
 
-    const interval = setInterval(loadAnalyses, 5000)
+    const interval = setInterval(() => {
+      fetchAnalyses();
+    }, 5000);
 
-    return () => clearInterval(interval)
-  }, [])
+    return () => clearInterval(interval);
+  }, []);
 
   const stats = useMemo(() => {
+    const total = analyses.length;
+
+    const genuine = analyses.filter(
+      (item) =>
+        String(item.label || "").toLowerCase() === "real" ||
+        String(item.label || "").toLowerCase() === "genuine"
+    ).length;
+
+    const suspicious = analyses.filter((item) => {
+      const label = String(item.label || "").toLowerCase();
+      return label === "fake" || label === "synthetic" || label === "suspicious";
+    }).length;
+
+    const highRisk = analyses.filter((item) => {
+      const risk = String(
+        item.risk_level || item.risk || ""
+      ).toLowerCase();
+
+      return risk === "high" || risk === "critical";
+    }).length;
+
     return {
-      total: analyses.length,
-      genuine: analyses.filter((a) => a.label === "real").length,
-      suspicious: analyses.filter((a) => a.label === "suspicious").length,
-      highRisk: analyses.filter(
-        (a) => a.risk_level === "high" || a.risk_level === "critical"
-      ).length,
-    }
-  }, [analyses])
+      total,
+      genuine,
+      suspicious,
+      highRisk,
+    };
+  }, [analyses]);
 
   const riskDistribution = useMemo(() => {
-    return {
-      low: analyses.filter((a) => a.risk_level === "low").length,
-      medium: analyses.filter((a) => a.risk_level === "medium").length,
-      high: analyses.filter((a) => a.risk_level === "high").length,
-      critical: analyses.filter((a) => a.risk_level === "critical").length,
-    }
-  }, [analyses])
+    const distribution = {
+      low: 0,
+      medium: 0,
+      high: 0,
+      critical: 0,
+    };
 
-  const riskColor = (risk: string) => {
-    switch (risk) {
-      case "low":
-        return "text-green-400 bg-green-500/10 border-green-500/20"
-      case "medium":
-        return "text-yellow-400 bg-yellow-500/10 border-yellow-500/20"
-      case "high":
-        return "text-orange-400 bg-orange-500/10 border-orange-500/20"
-      case "critical":
-        return "text-red-400 bg-red-500/10 border-red-500/20"
-      default:
-        return "text-slate-400 bg-slate-500/10 border-slate-500/20"
-    }
-  }
+    analyses.forEach((item) => {
+      const risk = String(
+        item.risk_level || item.risk || "low"
+      ).toLowerCase();
 
-  const actionColor = (action: string) => {
-    switch (action) {
-      case "allow":
-        return "text-green-400"
-      case "verify":
-        return "text-yellow-400"
-      case "alert":
-        return "text-orange-400"
-      case "block":
-        return "text-red-400"
-      default:
-        return "text-slate-400"
+      if (risk === "critical") {
+        distribution.critical++;
+      } else if (risk === "high") {
+        distribution.high++;
+      } else if (risk === "medium") {
+        distribution.medium++;
+      } else {
+        distribution.low++;
+      }
+    });
+
+    return distribution;
+  }, [analyses]);
+
+  const getRiskClass = (risk: string) => {
+    const value = risk.toLowerCase();
+
+    if (value === "critical") {
+      return "risk-critical";
     }
-  }
+
+    if (value === "high") {
+      return "risk-high";
+    }
+
+    if (value === "medium") {
+      return "risk-medium";
+    }
+
+    return "risk-low";
+  };
+
+  const getActionClass = (action: string) => {
+    const value = action.toLowerCase();
+
+    if (
+      value.includes("block") ||
+      value.includes("alert") ||
+      value.includes("reject")
+    ) {
+      return "action-danger";
+    }
+
+    if (
+      value.includes("verify") ||
+      value.includes("review")
+    ) {
+      return "action-warning";
+    }
+
+    return "action-safe";
+  };
+
+  const total = stats.total || 1;
+
+  const genuinePercentage = Math.round(
+    (stats.genuine / total) * 100
+  );
+
+  const suspiciousPercentage = Math.round(
+    (stats.suspicious / total) * 100
+  );
+
+  const riskPercentage = Math.round(
+    (stats.highRisk / total) * 100
+  );
+
+  const riskItems = [
+    {
+      label: "Low Risk",
+      value: riskDistribution.low,
+      className: "risk-low",
+    },
+    {
+      label: "Medium Risk",
+      value: riskDistribution.medium,
+      className: "risk-medium",
+    },
+    {
+      label: "High Risk",
+      value: riskDistribution.high,
+      className: "risk-high",
+    },
+    {
+      label: "Critical",
+      value: riskDistribution.critical,
+      className: "risk-critical",
+    },
+  ];
 
   return (
-    <div className="space-y-6">
-
+    <div className="dashboard-shell">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <header className="dashboard-header">
         <div>
-          <h2 className="text-2xl font-bold text-white">
-            Security Dashboard
-          </h2>
-          <p className="text-sm text-slate-400 mt-1">
-            Real-time voice security monitoring
+          <div className="dashboard-eyebrow">
+            <span className="status-dot" />
+            VOICE SECURITY CENTER
+          </div>
+
+          <h1 className="dashboard-title">
+            VoiceGuard Dashboard
+          </h1>
+
+          <p className="dashboard-subtitle">
+            Detect. Verify. Prevent.
           </p>
         </div>
 
-        <button
-          onClick={loadAnalyses}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg
-                     bg-slate-800 border border-slate-700
-                     hover:border-cyan-500 transition"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Refresh
-        </button>
-      </div>
-
-      {/* Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-400">Total Analyses</p>
-              <p className="text-3xl font-bold mt-2">{stats.total}</p>
-            </div>
-            <Activity className="w-8 h-8 text-cyan-400" />
+        <div className="dashboard-header-actions">
+          <div className="system-status">
+            <span className="status-dot" />
+            <span>System Operational</span>
           </div>
-        </div>
 
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-400">Genuine Voices</p>
-              <p className="text-3xl font-bold mt-2 text-green-400">
-                {stats.genuine}
-              </p>
+          <button
+            className="btn btn-secondary refresh-button"
+            onClick={fetchAnalyses}
+            disabled={loading}
+          >
+            <RefreshCw
+              size={16}
+              className={loading ? "spin" : ""}
+            />
+            Refresh
+          </button>
+        </div>
+      </header>
+
+      {/* Main content */}
+      <main className="dashboard-content">
+
+        {/* Statistics */}
+        <section className="stats-grid">
+
+          <div className="dashboard-stat-card">
+            <div className="stat-card-top">
+              <div className="dashboard-icon cyan">
+                <Activity size={20} />
+              </div>
+
+              <span className="stat-status">
+                LIVE
+              </span>
             </div>
-            <CheckCircle className="w-8 h-8 text-green-400" />
-          </div>
-        </div>
 
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-400">Suspicious</p>
-              <p className="text-3xl font-bold mt-2 text-yellow-400">
-                {stats.suspicious}
-              </p>
+            <p className="dashboard-label">
+              Total Analyses
+            </p>
+
+            <div className="dashboard-number">
+              {stats.total}
             </div>
-            <AlertTriangle className="w-8 h-8 text-yellow-400" />
-          </div>
-        </div>
 
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-400">High Risk</p>
-              <p className="text-3xl font-bold mt-2 text-red-400">
-                {stats.highRisk}
-              </p>
+            <p className="stat-description">
+              Voice samples analyzed
+            </p>
+          </div>
+
+          <div className="dashboard-stat-card">
+            <div className="stat-card-top">
+              <div className="dashboard-icon green">
+                <CheckCircle size={20} />
+              </div>
+
+              <span className="stat-status success">
+                SAFE
+              </span>
             </div>
-            <ShieldAlert className="w-8 h-8 text-red-400" />
+
+            <p className="dashboard-label">
+              Genuine Voices
+            </p>
+
+            <div className="dashboard-number">
+              {stats.genuine}
+            </div>
+
+            <p className="stat-description">
+              Verified authentic samples
+            </p>
           </div>
-        </div>
 
-      </div>
+          <div className="dashboard-stat-card">
+            <div className="stat-card-top">
+              <div className="dashboard-icon amber">
+                <AlertTriangle size={20} />
+              </div>
 
-      {/* Middle section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <span className="stat-status warning">
+                REVIEW
+              </span>
+            </div>
 
-        {/* Risk Distribution */}
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
-          <h3 className="font-semibold text-lg mb-5">
-            Detection Distribution
-          </h3>
+            <p className="dashboard-label">
+              Suspicious
+            </p>
 
-          <div className="space-y-4">
+            <div className="dashboard-number">
+              {stats.suspicious}
+            </div>
 
-            {[
-              ["Low", riskDistribution.low, "bg-green-500"],
-              ["Medium", riskDistribution.medium, "bg-yellow-500"],
-              ["High", riskDistribution.high, "bg-orange-500"],
-              ["Critical", riskDistribution.critical, "bg-red-500"],
-            ].map(([label, value, color]) => {
+            <p className="stat-description">
+              Potential synthetic voices
+            </p>
+          </div>
 
-              const count = Number(value)
-              const percentage =
-                stats.total > 0
-                  ? (count / stats.total) * 100
-                  : 0
+          <div className="dashboard-stat-card">
+            <div className="stat-card-top">
+              <div className="dashboard-icon red">
+                <ShieldAlert size={20} />
+              </div>
 
-              return (
-                <div key={label as string}>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-slate-300">{label}</span>
-                    <span className="text-slate-400">
-                      {count}
-                    </span>
-                  </div>
+              <span className="stat-status danger">
+                HIGH RISK
+              </span>
+            </div>
 
-                  <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full ${color} transition-all`}
-                      style={{ width: `${percentage}%` }}
-                    />
-                  </div>
+            <p className="dashboard-label">
+              High Risk
+            </p>
+
+            <div className="dashboard-number">
+              {stats.highRisk}
+            </div>
+
+            <p className="stat-description">
+              Require security action
+            </p>
+          </div>
+
+        </section>
+
+        {/* Analytics */}
+        <section className="analytics-grid">
+
+          {/* Detection Distribution */}
+          <div className="dashboard-panel">
+            <div className="dashboard-panel-header">
+              <div>
+                <p className="dashboard-eyebrow">
+                  ANALYTICS
+                </p>
+
+                <h2>
+                  Detection Distribution
+                </h2>
+              </div>
+
+              <BrainCircuit size={22} />
+            </div>
+
+            <div className="distribution-container">
+
+              <div className="distribution-row">
+                <div className="distribution-label">
+                  <span>Genuine</span>
+                  <strong>{genuinePercentage}%</strong>
                 </div>
-              )
-            })}
 
+                <div className="progress-track">
+                  <div
+                    className="progress-fill progress-green"
+                    style={{
+                      width: genuinePercentage + "%",
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="distribution-row">
+                <div className="distribution-label">
+                  <span>Suspicious</span>
+                  <strong>{suspiciousPercentage}%</strong>
+                </div>
+
+                <div className="progress-track">
+                  <div
+                    className="progress-fill progress-amber"
+                    style={{
+                      width: suspiciousPercentage + "%",
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="distribution-row">
+                <div className="distribution-label">
+                  <span>High Risk</span>
+                  <strong>{riskPercentage}%</strong>
+                </div>
+
+                <div className="progress-track">
+                  <div
+                    className="progress-fill progress-red"
+                    style={{
+                      width: riskPercentage + "%",
+                    }}
+                  />
+                </div>
+              </div>
+
+            </div>
           </div>
-        </div>
+
+          {/* Risk Distribution */}
+          <div className="dashboard-panel">
+            <div className="dashboard-panel-header">
+              <div>
+                <p className="dashboard-eyebrow">
+                  RISK ENGINE
+                </p>
+
+                <h2>
+                  Risk Distribution
+                </h2>
+              </div>
+
+              <ShieldAlert size={22} />
+            </div>
+
+            <div className="risk-list">
+
+              {riskItems.map((item) => {
+                const percentage =
+                  stats.total > 0
+                    ? Math.round(
+                        (item.value / stats.total) * 100
+                      )
+                    : 0;
+
+                return (
+                  <div
+                    className="risk-item"
+                    key={item.label}
+                  >
+                    <div className="risk-item-header">
+
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={
+                            "h-2 w-2 rounded-full " +
+                            item.className
+                          }
+                        />
+
+                        <span className="risk-item-label">
+                          {item.label}
+                        </span>
+                      </div>
+
+                      <div className="risk-item-value">
+                        {item.value}
+                      </div>
+                    </div>
+
+                    <div className="progress-track">
+                      <div
+                        className={
+                          "progress-fill " +
+                          item.className
+                        }
+                        style={{
+                          width: percentage + "%",
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+
+            </div>
+          </div>
+
+        </section>
 
         {/* Security Status */}
-        <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-6">
-          <h3 className="font-semibold text-lg mb-5">
-            Security Status
-          </h3>
+        <section className="dashboard-panel security-panel">
 
-          <div className="space-y-4">
+          <div className="dashboard-panel-header">
+            <div>
+              <p className="dashboard-eyebrow">
+                SECURITY
+              </p>
 
-            <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
-              <div className="flex items-center gap-3">
-                <Server className="w-5 h-5 text-cyan-400" />
-                <span>API Service</span>
-              </div>
-              <span className="text-green-400 text-sm font-medium">
-                ● Operational
-              </span>
+              <h2>
+                Security Status
+              </h2>
             </div>
 
-            <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
-              <div className="flex items-center gap-3">
-                <BrainCircuit className="w-5 h-5 text-cyan-400" />
+            <Lock size={22} />
+          </div>
+
+          <div className="security-grid">
+
+            <div className="security-item">
+              <div className="security-item-icon">
+                <Server size={18} />
+              </div>
+
+              <div>
+                <span>API Server</span>
+                <strong>Operational</strong>
+              </div>
+
+              <span className="security-indicator" />
+            </div>
+
+            <div className="security-item">
+              <div className="security-item-icon">
+                <BrainCircuit size={18} />
+              </div>
+
+              <div>
                 <span>Detection Engine</span>
+                <strong>Baseline Active</strong>
               </div>
-              <span className="text-green-400 text-sm font-medium">
-                ● Ready
-              </span>
+
+              <span className="security-indicator" />
             </div>
 
-            <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
-              <div className="flex items-center gap-3">
-                <Lock className="w-5 h-5 text-cyan-400" />
-                <span>Protection Layer</span>
+            <div className="security-item">
+              <div className="security-item-icon">
+                <Lock size={18} />
               </div>
-              <span className="text-green-400 text-sm font-medium">
-                ● Active
-              </span>
+
+              <div>
+                <span>Secure Logging</span>
+                <strong>Enabled</strong>
+              </div>
+
+              <span className="security-indicator" />
             </div>
 
           </div>
 
-          <div className="mt-5 p-3 rounded-lg border border-yellow-500/20 bg-yellow-500/5">
-            <p className="text-xs text-yellow-300">
-              Detection engine currently uses a development-stage
-              acoustic-feature baseline.
+        </section>
+
+        {/* Development notice */}
+        <section className="development-notice">
+
+          <div className="notice-icon">
+            <BrainCircuit size={20} />
+          </div>
+
+          <div>
+            <h3>
+              Development-Stage Detection Model
+            </h3>
+
+            <p>
+              VoiceGuard is currently using a baseline
+              acoustic-feature detection pipeline. ML
+              performance will improve as the trained
+              voice-clone detection model and evaluation
+              datasets are integrated.
             </p>
           </div>
-        </div>
 
-      </div>
+        </section>
 
-      {/* Recent Analyses */}
-      <div className="bg-slate-900/70 border border-slate-800 rounded-xl overflow-hidden">
+        {/* Recent Analyses */}
+        <section className="dashboard-panel">
 
-        <div className="p-6 border-b border-slate-800">
-          <h3 className="font-semibold text-lg">
-            Recent Analyses
-          </h3>
-        </div>
+          <div className="dashboard-panel-header">
+            <div>
+              <p className="dashboard-eyebrow">
+                ACTIVITY
+              </p>
 
-        {loading ? (
-          <div className="p-10 text-center text-slate-400">
-            Loading analysis history...
+              <h2>
+                Recent Analyses
+              </h2>
+            </div>
+
+            <span className="analysis-count">
+              {analyses.length} records
+            </span>
           </div>
-        ) : analyses.length === 0 ? (
-          <div className="p-10 text-center">
-            <Activity className="w-10 h-10 mx-auto text-slate-600 mb-3" />
-            <p className="text-slate-400">
-              No analyses yet
-            </p>
-            <p className="text-sm text-slate-500 mt-1">
-              Upload an audio file from Analyze Voice to begin.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
 
-              <thead className="bg-slate-800/50">
-                <tr className="text-left text-slate-400">
-                  <th className="px-6 py-3">File</th>
-                  <th className="px-6 py-3">Classification</th>
-                  <th className="px-6 py-3">Risk</th>
-                  <th className="px-6 py-3">Action</th>
-                  <th className="px-6 py-3">Confidence</th>
-                </tr>
-              </thead>
+          {analyses.length === 0 ? (
+            <div className="empty-state">
 
-              <tbody>
-                {analyses.slice(0, 10).map((analysis) => (
-                  <tr
-                    key={analysis.id}
-                    className="border-t border-slate-800 hover:bg-slate-800/30"
-                  >
+              <Activity size={32} />
 
-                    <td className="px-6 py-4">
-                      <div className="font-medium text-slate-200">
-                        {analysis.filename}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {analysis.model_version}
-                      </div>
-                    </td>
+              <h3>
+                No analyses yet
+              </h3>
 
-                    <td className="px-6 py-4">
-                      {analysis.label === "real"
-                        ? "GENUINE"
-                        : analysis.label === "suspicious"
-                        ? "SUSPICIOUS"
-                        : "SYNTHETIC"}
-                    </td>
+              <p>
+                Upload a voice sample to begin detection.
+              </p>
 
-                    <td className="px-6 py-4">
-                      <span
-                        className={`px-2.5 py-1 rounded-md border text-xs font-medium ${riskColor(
-                          analysis.risk_level
-                        )}`}
-                      >
-                        {analysis.risk_level.toUpperCase()}
-                      </span>
-                    </td>
+            </div>
+          ) : (
+            <div className="table-wrapper">
 
-                    <td
-                      className={`px-6 py-4 font-medium uppercase ${actionColor(
-                        analysis.action
-                      )}`}
-                    >
-                      {analysis.action}
-                    </td>
+              <table className="analysis-table">
 
-                    <td className="px-6 py-4 text-cyan-400">
-                      {(analysis.confidence * 100).toFixed(1)}%
-                    </td>
-
+                <thead>
+                  <tr>
+                    <th>File</th>
+                    <th>Detection</th>
+                    <th>Confidence</th>
+                    <th>Risk</th>
+                    <th>Action</th>
+                    <th>Time</th>
                   </tr>
-                ))}
-              </tbody>
+                </thead>
 
-            </table>
-          </div>
-        )}
+                <tbody>
 
-      </div>
+                  {analyses.slice(0, 10).map((item, index) => {
+
+                    const label =
+                      item.label || "Unknown";
+
+                    const risk =
+                      item.risk_level ||
+                      item.risk ||
+                      "Low";
+
+                    const action =
+                      item.action ||
+                      "Monitor";
+
+                    const confidence =
+                      typeof item.confidence === "number"
+                        ? Math.round(item.confidence * 100)
+                        : 0;
+
+                    const dateValue =
+                      item.created_at ||
+                      item.timestamp;
+
+                    let time = "—";
+
+                    if (dateValue) {
+                      try {
+                        time = new Date(
+                          dateValue
+                        ).toLocaleString();
+                      } catch {
+                        time = String(dateValue);
+                      }
+                    }
+
+                    return (
+                      <tr
+                        key={
+                          item.id ||
+                          item.filename ||
+                          index
+                        }
+                      >
+
+                        <td>
+                          <div className="file-cell">
+                            <Activity size={16} />
+
+                            <span>
+                              {item.filename ||
+                                "Audio Sample"}
+                            </span>
+                          </div>
+                        </td>
+
+                        <td>
+                          <span
+                            className={
+                              String(label)
+                                .toLowerCase()
+                                .includes("real") ||
+                              String(label)
+                                .toLowerCase()
+                                .includes("genuine")
+                                ? "badge badge-safe"
+                                : "badge badge-warning"
+                            }
+                          >
+                            {label}
+                          </span>
+                        </td>
+
+                        <td>
+                          <span className="confidence-value">
+                            {confidence}%
+                          </span>
+                        </td>
+
+                        <td>
+                          <span
+                            className={
+                              "badge " +
+                              getRiskClass(String(risk))
+                            }
+                          >
+                            {risk}
+                          </span>
+                        </td>
+
+                        <td>
+                          <span
+                            className={
+                              "badge " +
+                              getActionClass(String(action))
+                            }
+                          >
+                            {action}
+                          </span>
+                        </td>
+
+                        <td className="time-cell">
+                          {time}
+                        </td>
+
+                      </tr>
+                    );
+                  })}
+
+                </tbody>
+
+              </table>
+
+            </div>
+          )}
+
+        </section>
+
+      </main>
+
+      {/* Footer */}
+      <footer className="dashboard-footer">
+
+        <div>
+          <strong>VOICEGUARD</strong>
+          <span>
+            AI-Powered Voice Clone Detection
+          </span>
+        </div>
+
+        <div>
+          {lastUpdated
+            ? "Last updated " +
+              lastUpdated.toLocaleTimeString()
+            : "Waiting for system data"}
+        </div>
+
+      </footer>
 
     </div>
-  )
+  );
 }

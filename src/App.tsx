@@ -1,104 +1,422 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from "react";
+import axios from "axios";
 import {
-  Shield,
+  Activity,
   BarChart3,
   FileAudio,
-  AlertCircle,
-  ShieldAlert
-} from 'lucide-react'
+  Menu,
+  Server,
+  Shield,
+  ShieldAlert,
+  X,
+} from "lucide-react";
+
 import Dashboard from "./Dashboard";
 import AnalysisPage from "./AnalysisPage";
 import IncidentsPage from "./IncidentsPage";
-import axios from 'axios'
 
-type Page = 'dashboard' | 'analyze' | 'incidents' | 'analytics'
+type Page = "dashboard" | "analyze" | "incidents" | "analytics";
 
 interface HealthStatus {
-  status: string
-  database: string
-  model_status: string
-  version: string
+  status: string;
+  database: string;
+  model_status: string;
+  version: string;
 }
 
+const navigation = [
+  {
+    id: "dashboard" as Page,
+    label: "Dashboard",
+    description: "Security overview",
+    icon: BarChart3,
+  },
+  {
+    id: "analyze" as Page,
+    label: "Analyze Voice",
+    description: "Detect voice threats",
+    icon: FileAudio,
+  },
+  {
+    id: "incidents" as Page,
+    label: "Incidents",
+    description: "Security events",
+    icon: ShieldAlert,
+  },
+];
+
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<Page>('dashboard')
-  const [health, setHealth] = useState<HealthStatus | null>(null)
-  const [connected, setConnected] = useState(false)
+  const [currentPage, setCurrentPage] =
+    useState<Page>("dashboard");
+
+  const [health, setHealth] =
+    useState<HealthStatus | null>(null);
+
+  const [connected, setConnected] =
+    useState(false);
+
+  const [mobileMenuOpen, setMobileMenuOpen] =
+    useState(false);
 
   useEffect(() => {
-  const checkHealth = async () => {
-    try {
-      const res = await axios.get('http://localhost:8000/api/health')
-      setHealth(res.data)
-      setConnected(true)
-    } catch (error) {
-      console.error('Backend health check failed:', error)
-      setConnected(false)
+    const checkHealth = async () => {
+      try {
+        const response = await axios.get(
+          "http://localhost:8000/api/health"
+        );
+
+        setHealth(response.data);
+        setConnected(true);
+      } catch (error) {
+        console.error(
+          "Backend health check failed:",
+          error
+        );
+
+        setConnected(false);
+        setHealth(null);
+      }
+    };
+
+    checkHealth();
+
+    const interval = setInterval(
+      checkHealth,
+      15000
+    );
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const changePage = (page: Page) => {
+    setCurrentPage(page);
+    setMobileMenuOpen(false);
+  };
+
+  const renderPage = () => {
+    if (currentPage === "dashboard") {
+      return <Dashboard />;
     }
-  }
 
-  checkHealth()
+    if (currentPage === "analyze") {
+      return <AnalysisPage />;
+    }
 
-  // Check every 15 seconds instead of every 5 seconds
-  const interval = setInterval(checkHealth, 15000)
+    if (currentPage === "incidents") {
+      return <IncidentsPage />;
+    }
 
-  return () => clearInterval(interval)
-}, [])
+    return (
+      <div className="dashboard-panel p-8">
+        <div className="dashboard-eyebrow">
+          ANALYTICS
+        </div>
+
+        <h2 className="text-2xl font-bold text-white">
+          Analytics Center
+        </h2>
+
+        <p className="mt-2 text-sm text-slate-400">
+          Advanced analytics will be available
+          after the detection pipeline is fully
+          integrated.
+        </p>
+      </div>
+    );
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 to-slate-900">
-      <nav className="border-b border-slate-800 bg-slate-900/50 backdrop-blur">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Shield className="w-8 h-8 text-cyan-500" />
-            <div>
-              <h1 className="text-2xl font-bold">VoiceGuard</h1>
-              <p className="text-xs text-slate-400">Detect. Verify. Prevent.</p>
-            </div>
+    <div className="app-shell">
+
+      {/* Mobile Header */}
+      <header className="mobile-header">
+
+        <div className="mobile-brand">
+          <div className="brand-logo">
+            <Shield size={21} />
           </div>
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-sm">{connected ? 'Connected' : 'Offline'}</span>
+
+          <div>
+            <div className="brand-name">
+              VOICEGUARD
+            </div>
+
+            <div className="brand-tagline">
+              Detect. Verify. Prevent.
+            </div>
           </div>
         </div>
-      </nav>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        {!connected && (
-          <div className="mb-6 p-4 bg-red-900/30 border border-red-800 rounded-lg flex gap-3">
-            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-            <div>
-              <p className="font-medium">Backend not connected</p>
-              <p className="text-sm text-slate-400">Ensure FastAPI is running on http://localhost:8000</p>
+        <button
+          className="mobile-menu-button"
+          onClick={() =>
+            setMobileMenuOpen(
+              !mobileMenuOpen
+            )
+          }
+        >
+          {mobileMenuOpen ? (
+            <X size={21} />
+          ) : (
+            <Menu size={21} />
+          )}
+        </button>
+
+      </header>
+
+      {/* Sidebar */}
+      <aside
+        className={
+          "app-sidebar " +
+          (mobileMenuOpen
+            ? "sidebar-open"
+            : "")
+        }
+      >
+
+        {/* Brand */}
+        <div className="sidebar-brand">
+
+          <div className="brand-logo">
+            <Shield size={23} />
+          </div>
+
+          <div>
+            <div className="brand-name">
+              VOICEGUARD
             </div>
+
+            <div className="brand-tagline">
+              Detect. Verify. Prevent.
+            </div>
+          </div>
+
+        </div>
+
+        {/* Navigation */}
+        <div className="sidebar-section">
+
+          <div className="sidebar-section-title">
+            SECURITY CENTER
+          </div>
+
+          <nav className="sidebar-nav">
+
+            {navigation.map(
+              ({
+                id,
+                label,
+                description,
+                icon: Icon,
+              }) => {
+
+                const active =
+                  currentPage === id;
+
+                return (
+                  <button
+                    key={id}
+                    onClick={() =>
+                      changePage(id)
+                    }
+                    className={
+                      "sidebar-nav-item " +
+                      (active
+                        ? "active"
+                        : "")
+                    }
+                  >
+
+                    <div className="sidebar-nav-icon">
+                      <Icon size={19} />
+                    </div>
+
+                    <div className="sidebar-nav-text">
+                      <span>{label}</span>
+                      <small>
+                        {description}
+                      </small>
+                    </div>
+
+                    {active && (
+                      <span className="nav-active-dot" />
+                    )}
+
+                  </button>
+                );
+              }
+            )}
+
+          </nav>
+
+        </div>
+
+        {/* System Status */}
+        <div className="sidebar-bottom">
+
+          <div className="sidebar-system-card">
+
+            <div className="sidebar-system-header">
+
+              <div className="sidebar-system-icon">
+                <Server size={17} />
+              </div>
+
+              <span>
+                SYSTEM STATUS
+              </span>
+
+            </div>
+
+            <div className="sidebar-status-row">
+
+              <span
+                className={
+                  connected
+                    ? "status-dot"
+                    : "status-dot offline"
+                }
+              />
+
+              <span>
+                {connected
+                  ? "Backend Connected"
+                  : "Backend Offline"}
+              </span>
+
+            </div>
+
+            {health && (
+              <div className="sidebar-health-details">
+
+                <div>
+                  <span>Database</span>
+
+                  <strong>
+                    {health.database}
+                  </strong>
+                </div>
+
+                <div>
+                  <span>Model</span>
+
+                  <strong>
+                    {health.model_status}
+                  </strong>
+                </div>
+
+                <div>
+                  <span>Version</span>
+
+                  <strong>
+                    {health.version}
+                  </strong>
+                </div>
+
+              </div>
+            )}
+
+          </div>
+
+          <div className="sidebar-footer">
+            <Activity size={13} />
+            <span>
+              VOICEGUARD SECURITY PLATFORM
+            </span>
+          </div>
+
+        </div>
+
+      </aside>
+
+      {/* Main Area */}
+      <div className="app-main">
+
+        {/* Top Bar */}
+        <div className="app-topbar">
+
+          <div className="topbar-page-info">
+
+            <span className="topbar-label">
+              SECURITY PLATFORM
+            </span>
+
+            <span className="topbar-separator">
+              /
+            </span>
+
+            <span className="topbar-current">
+              {currentPage === "dashboard"
+                ? "Dashboard"
+                : currentPage === "analyze"
+                ? "Analyze Voice"
+                : currentPage === "incidents"
+                ? "Incidents"
+                : "Analytics"}
+            </span>
+
+          </div>
+
+          <div className="topbar-status">
+
+            <span
+              className={
+                connected
+                  ? "status-dot"
+                  : "status-dot offline"
+              }
+            />
+
+            <span>
+              {connected
+                ? "System Operational"
+                : "Connection Lost"}
+            </span>
+
+          </div>
+
+        </div>
+
+        {/* Connection Warning */}
+        {!connected && (
+          <div className="connection-warning">
+
+            <div className="warning-symbol">
+              !
+            </div>
+
+            <div>
+              <strong>
+                Backend connection unavailable
+              </strong>
+
+              <p>
+                Make sure FastAPI is running on
+                localhost:8000.
+              </p>
+            </div>
+
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-4 mb-8">
-          {[
-  { id: 'dashboard' as Page, label: 'Dashboard', icon: BarChart3 },
-  { id: 'analyze' as Page, label: 'Analyze Voice', icon: FileAudio },
-  { id: 'incidents' as Page, label: 'Incidents', icon: ShieldAlert },
-          ].map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setCurrentPage(id)}
-              className={`p-4 rounded-lg border transition-all ${
-                currentPage === id
-                  ? 'bg-cyan-600 border-cyan-500 text-white'
-                  : 'bg-slate-800 border-slate-700 hover:border-slate-600'
-              }`}
-            >
-              <Icon className="w-5 h-5 mb-2" />
-              <div className="text-sm font-medium">{label}</div>
-            </button>
-          ))}
-        </div>
+        {/* Page */}
+        <main className="app-page">
+          {renderPage()}
+        </main>
 
-        {currentPage === 'dashboard' && <Dashboard />}
-        {currentPage === 'analyze' && <AnalysisPage />}
-        {currentPage === 'incidents' && <IncidentsPage />}
       </div>
+
+      {/* Mobile Overlay */}
+      {mobileMenuOpen && (
+        <button
+          className="sidebar-overlay"
+          onClick={() =>
+            setMobileMenuOpen(false)
+          }
+          aria-label="Close navigation"
+        />
+      )}
+
     </div>
-  )
+  );
 }
