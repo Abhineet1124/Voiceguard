@@ -1,16 +1,3 @@
-"""
-VoiceGuard - CNN training pipeline.
-
-Phase 3.3
-
-Classes:
-    0 = real
-    1 = synthetic
-
-This script trains and evaluates the VoiceGuard CNN.
-It does NOT connect the trained model to the production API yet.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -28,26 +15,20 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
 )
-from torch import nn
+from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, Subset
 
 from app.ml.dataset import VoiceDataset
-from app.ml.model import VoiceGuardCNN
+from app.ml.model import create_model
 
 
 SEED = 42
-DEFAULT_EPOCHS = 10
-DEFAULT_BATCH_SIZE = 8
-DEFAULT_LEARNING_RATE = 0.001
-
-DEVICE = torch.device(
-    "cuda" if torch.cuda.is_available() else "cpu"
-)
+MODEL_DIR = Path("models")
+BEST_MODEL_PATH = MODEL_DIR / "voiceguard_cnn_best.pt"
+METRICS_PATH = MODEL_DIR / "training_metrics.json"
 
 
 def set_seed(seed: int = SEED) -> None:
-    """Make training as reproducible as reasonably possible."""
-
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -56,113 +37,76 @@ def set_seed(seed: int = SEED) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def split_dataset(
-    dataset: VoiceDataset,
-    validation_ratio: float = 0.20,
-):
-    """Create deterministic train/validation subsets."""
+def stratified_split(
+    labels: list[int],
+    validation_size: float = 0.2,
+) -> tuple[list[int], list[int]]:
 
-    total = len(dataset)
+    indices = np.arange(len(labels))
 
-    if total < 2:
-        raise ValueError(
-            "At least two audio files are required."
-        )
-
-    indices = list(range(total))
-
-    random.Random(SEED).shuffle(indices)
-
-    validation_size = max(
-        1,
-        int(total * validation_ratio),
+    train_indices, validation_indices = train_test_split(
+        indices,
+        test_size=validation_size,
+        random_state=SEED,
+        stratify=labels,
     )
 
-    # Keep at least one sample for training.
-    validation_size = min(
-        validation_size,
-        total - 1,
-    )
-
-    validation_indices = indices[:validation_size]
-    train_indices = indices[validation_size:]
-
-    return (
-        Subset(dataset, train_indices),
-        Subset(dataset, validation_indices),
-    )
+    return train_indices.tolist(), validation_indices.tolist()
 
 
 def evaluate(
-    model: nn.Module,
+    model: torch.nn.Module,
     loader: DataLoader,
-):
-    """Evaluate model and calculate standard classification metrics."""
+    device: torch.device,
+) -> dict:
 
     model.eval()
 
-    predictions = []
-    targets = []
+    all_predictions: list[int] = []
+    all_labels: list[int] = []
 
     with torch.no_grad():
         for features, labels in loader:
-            features = features.to(DEVICE)
-            labels = labels.to(DEVICE)
+            features = features.to(device)
+            labels = labels.to(device)
 
             outputs = model(features)
-            predicted = torch.argmax(
-                outputs,
-                dim=1,
-            )
+            predictions = torch.argmax(outputs, dim=1)
 
-            predictions.extend(
-                predicted.cpu().numpy().tolist()
-            )
+            all_predictions.extend(predictions.cpu().numpy().tolist())
+            all_labels.extend(labels.cpu().numpy().tolist())
 
-            targets.extend(
-                labels.cpu().numpy().tolist()
-            )
-
-    accuracy = accuracy_score(
-        targets,
-        predictions,
-    )
-
+    accuracy = accuracy_score(all_labels, all_predictions)
     precision = precision_score(
-        targets,
-        predictions,
+        all_labels,
+        all_predictions,
         average="binary",
         zero_division=0,
     )
-
     recall = recall_score(
-        targets,
-        predictions,
+        all_labels,
+        all_predictions,
         average="binary",
         zero_division=0,
     )
-
     f1 = f1_score(
-        targets,
-        predictions,
+        all_labels,
+        all_predictions,
         average="binary",
         zero_division=0,
     )
 
     matrix = confusion_matrix(
-        targets,
-        predictions,
+        all_labels,
+        all_predictions,
         labels=[0, 1],
     )
 
     report = classification_report(
-        targets,
-        predictions,
+        all_labels,
+        all_predictions,
         labels=[0, 1],
-        target_names=[
-            "real",
-            "synthetic",
-        ],
+        target_names=["real", "synthetic"],
         zero_division=0,
     )
 
@@ -170,7 +114,7 @@ def evaluate(
         "accuracy": float(accuracy),
         "precision": float(precision),
         "recall": float(recall),
-        "f1_score": float(f1),
+        "f1": float(f1),
         "confusion_matrix": matrix.tolist(),
         "classification_report": report,
     }
@@ -178,34 +122,57 @@ def evaluate(
 
 def train(
     dataset_path: str,
-    epochs: int = DEFAULT_EPOCHS,
-    batch_size: int = DEFAULT_BATCH_SIZE,
-    learning_rate: float = DEFAULT_LEARNING_RATE,
-):
+    epochs: int,
+    batch_size: int,
+    learning_rate: float,
+) -> None:
+
     set_seed()
+
+    device = torch.device(
+        "cuda" if torch.cuda.is_available() else "cpu"
+    )
 
     print("=" * 60)
     print("VOICEGUARD CNN TRAINING")
     print("=" * 60)
 
-    print(f"Device: {DEVICE}")
-    print(f"Dataset: {dataset_path}")
+    print(f"Dataset : {dataset_path}")
+    print(f"Device  : {device}")
+    print(f"Epochs  : {epochs}")
+    print(f"Batch   : {batch_size}")
+    print(f"LR      : {learning_rate}")
+    print()
 
     dataset = VoiceDataset(dataset_path)
 
-    print(f"Total samples: {len(dataset)}")
+    if len(dataset) < 4:
+        raise RuntimeError(
+            "Dataset is too small. Add real and synthetic audio "
+            "before starting training."
+        )
 
-    train_dataset, validation_dataset = split_dataset(
-        dataset
-    )
+    labels = dataset.labels
 
-    print(
-        f"Training samples: {len(train_dataset)}"
-    )
+    real_count = labels.count(0)
+    synthetic_count = labels.count(1)
 
-    print(
-        f"Validation samples: {len(validation_dataset)}"
-    )
+    print(f"Real samples      : {real_count}")
+    print(f"Synthetic samples : {synthetic_count}")
+
+    if real_count < 2 or synthetic_count < 2:
+        raise RuntimeError(
+            "Both classes need at least 2 samples for a stratified split."
+        )
+
+    train_indices, validation_indices = stratified_split(labels)
+
+    print(f"Training samples   : {len(train_indices)}")
+    print(f"Validation samples : {len(validation_indices)}")
+    print()
+
+    train_dataset = Subset(dataset, train_indices)
+    validation_dataset = Subset(dataset, validation_indices)
 
     train_loader = DataLoader(
         train_dataset,
@@ -221,26 +188,19 @@ def train(
         num_workers=0,
     )
 
-    model = VoiceGuardCNN(
-        num_classes=2
-    ).to(DEVICE)
+    model = create_model().to(device)
 
-    criterion = nn.CrossEntropyLoss()
+    criterion = torch.nn.CrossEntropyLoss()
 
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=learning_rate,
     )
 
-    output_dir = Path("models")
-    output_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
     best_f1 = -1.0
-
-    history = []
+    best_metrics = None
 
     for epoch in range(1, epochs + 1):
 
@@ -249,34 +209,27 @@ def train(
         running_loss = 0.0
         sample_count = 0
 
-        for features, labels in train_loader:
+        for features, labels_batch in train_loader:
 
-            features = features.to(DEVICE)
-            labels = labels.to(DEVICE)
+            features = features.to(device)
+            labels_batch = labels_batch.to(device)
 
             optimizer.zero_grad()
 
             outputs = model(features)
 
-            loss = criterion(
-                outputs,
-                labels,
-            )
+            loss = criterion(outputs, labels_batch)
 
             loss.backward()
 
             optimizer.step()
 
-            batch_size_actual = labels.size(0)
+            batch_size_actual = labels_batch.size(0)
 
-            running_loss += (
-                loss.item()
-                * batch_size_actual
-            )
-
+            running_loss += loss.item() * batch_size_actual
             sample_count += batch_size_actual
 
-        train_loss = (
+        training_loss = (
             running_loss / sample_count
             if sample_count
             else 0.0
@@ -285,159 +238,109 @@ def train(
         metrics = evaluate(
             model,
             validation_loader,
-        )
-
-        epoch_result = {
-            "epoch": epoch,
-            "train_loss": float(train_loss),
-            **{
-                key: value
-                for key, value in metrics.items()
-                if key != "classification_report"
-            },
-        }
-
-        history.append(epoch_result)
-
-        print(
-            f"\nEpoch {epoch}/{epochs}"
+            device,
         )
 
         print(
-            f"Loss: {train_loss:.4f}"
+            f"Epoch {epoch:02d}/{epochs} | "
+            f"Loss: {training_loss:.4f} | "
+            f"Accuracy: {metrics['accuracy']:.4f} | "
+            f"Precision: {metrics['precision']:.4f} | "
+            f"Recall: {metrics['recall']:.4f} | "
+            f"F1: {metrics['f1']:.4f}"
         )
 
-        print(
-            f"Accuracy: {metrics['accuracy']:.4f}"
-        )
+        if metrics["f1"] > best_f1:
 
-        print(
-            f"Precision: {metrics['precision']:.4f}"
-        )
+            best_f1 = metrics["f1"]
+            best_metrics = metrics
 
-        print(
-            f"Recall: {metrics['recall']:.4f}"
-        )
-
-        print(
-            f"F1: {metrics['f1_score']:.4f}"
-        )
-
-        if metrics["f1_score"] > best_f1:
-
-            best_f1 = metrics["f1_score"]
-
-            checkpoint_path = (
-                output_dir
-                / "voiceguard_cnn_best.pt"
-            )
+            checkpoint = {
+                "state_dict": model.state_dict(),
+                "model_version": "voiceguard-cnn-v1",
+                "class_map": {
+                    "0": "real",
+                    "1": "synthetic",
+                },
+                "sample_rate": 16000,
+                "mel_bins": 64,
+                "frames": 256,
+                "best_f1": best_f1,
+            }
 
             torch.save(
-                {
-                    "model_state_dict": model.state_dict(),
-                    "model_version": "voiceguard-cnn-v1",
-                    "classes": {
-                        "0": "real",
-                        "1": "synthetic",
-                    },
-                    "sample_rate": 16000,
-                    "mel_bins": 64,
-                    "frames": 256,
-                    "best_f1": best_f1,
-                },
-                checkpoint_path,
+                checkpoint,
+                BEST_MODEL_PATH,
             )
 
-            print(
-                f"Best model saved: {checkpoint_path}"
-            )
+            print("  ✓ Best model saved")
 
-    final_metrics = evaluate(
-        model,
-        validation_loader,
-    )
+    if best_metrics is None:
+        raise RuntimeError("Training completed without validation metrics.")
 
-    metrics_path = (
-        output_dir
-        / "training_metrics.json"
-    )
+    metrics_output = {
+        "model_version": "voiceguard-cnn-v1",
+        "dataset": str(dataset_path),
+        "device": str(device),
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "learning_rate": learning_rate,
+        "seed": SEED,
+        "samples": {
+            "total": len(dataset),
+            "real": real_count,
+            "synthetic": synthetic_count,
+            "training": len(train_indices),
+            "validation": len(validation_indices),
+        },
+        "metrics": best_metrics,
+    }
 
-    with metrics_path.open(
-        "w",
+    METRICS_PATH.write_text(
+        json.dumps(metrics_output, indent=2),
         encoding="utf-8",
-    ) as file:
+    )
 
-        json.dump(
-            {
-                "model_version": "voiceguard-cnn-v1",
-                "device": str(DEVICE),
-                "epochs": epochs,
-                "batch_size": batch_size,
-                "learning_rate": learning_rate,
-                "history": history,
-                "final_metrics": final_metrics,
-            },
-            file,
-            indent=2,
-        )
-
-    print("\n" + "=" * 60)
-    print("FINAL VALIDATION RESULTS")
+    print()
     print("=" * 60)
-
-    print(
-        final_metrics[
-            "classification_report"
-        ]
-    )
-
-    print(
-        "Confusion matrix:"
-    )
-
-    print(
-        np.array(
-            final_metrics[
-                "confusion_matrix"
-            ]
-        )
-    )
-
-    print(
-        f"\nMetrics saved to: {metrics_path}"
-    )
+    print("TRAINING COMPLETE")
+    print("=" * 60)
+    print(f"Best F1       : {best_metrics['f1']:.4f}")
+    print(f"Accuracy      : {best_metrics['accuracy']:.4f}")
+    print(f"Precision     : {best_metrics['precision']:.4f}")
+    print(f"Recall        : {best_metrics['recall']:.4f}")
+    print()
+    print(f"Model saved   : {BEST_MODEL_PATH}")
+    print(f"Metrics saved : {METRICS_PATH}")
 
 
-def main():
+def main() -> None:
+
     parser = argparse.ArgumentParser(
-        description=(
-            "Train the VoiceGuard CNN "
-            "on real and synthetic speech."
-        )
+        description="Train VoiceGuard CNN."
     )
 
     parser.add_argument(
         "--dataset",
         default="datasets/voice",
-        help="Path to dataset directory.",
     )
 
     parser.add_argument(
         "--epochs",
         type=int,
-        default=DEFAULT_EPOCHS,
+        default=10,
     )
 
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=DEFAULT_BATCH_SIZE,
+        default=8,
     )
 
     parser.add_argument(
         "--learning-rate",
         type=float,
-        default=DEFAULT_LEARNING_RATE,
+        default=0.001,
     )
 
     args = parser.parse_args()
