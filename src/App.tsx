@@ -5,6 +5,7 @@ import {
   BarChart3,
   FileAudio,
   Menu,
+  Radio,
   Server,
   Shield,
   ShieldAlert,
@@ -13,12 +14,14 @@ import {
 
 import Dashboard from "./Dashboard";
 import AnalysisPage from "./AnalysisPage";
+import RealtimePage from "./RealtimePage";
 import IncidentsPage from "./IncidentsPage";
 import AnalyticsPage from "./AnalyticsPage";
 
 type Page =
   | "dashboard"
   | "analyze"
+  | "realtime"
   | "incidents"
   | "analytics";
 
@@ -41,6 +44,12 @@ const navigation = [
     label: "Analyze Voice",
     description: "Detect voice threats",
     icon: FileAudio,
+  },
+  {
+    id: "realtime" as Page,
+    label: "Live Detection",
+    description: "Real-time monitoring",
+    icon: Radio,
   },
   {
     id: "incidents" as Page,
@@ -112,6 +121,9 @@ export default function App() {
       case "analyze":
         return <AnalysisPage />;
 
+      case "realtime":
+        return <RealtimePage />;
+
       case "incidents":
         return <IncidentsPage />;
 
@@ -130,6 +142,9 @@ export default function App() {
 
       case "analyze":
         return "Analyze Voice";
+
+      case "realtime":
+        return "Live Detection";
 
       case "incidents":
         return "Incidents";

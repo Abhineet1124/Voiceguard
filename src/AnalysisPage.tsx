@@ -1,819 +1,1001 @@
-import { useEffect, useRef, useState } from 'react'
-import {
-  Upload,
-  Mic,
-  Square,
-  Play,
-  Loader,
-  ShieldCheck,
-  AlertTriangle,
-  ShieldAlert,
-  Fingerprint,
-  FileAudio,
-  Activity,
-  Clock3,
-  Cpu,
-  CheckCircle2,
-  X,
-} from 'lucide-react'
-import axios from 'axios'
+import React, { useEffect, useRef, useState } from "react";
 
-interface SecurityDecision {
-  action: string
-  severity: string
-  message: string
-  decision_engine: string
+const API_URL = "http://localhost:8000/api";
+
+interface AnalysisData {
+  id: string;
+  filename: string;
+  prediction: string;
+  confidence: number;
+  real_probability?: number;
+  synthetic_probability?: number;
+  model_version?: string;
+  model_source?: string;
+  risk_level?: string;
+  risk_score?: number;
+  action?: string;
+  created_at?: string;
 }
 
-interface Incident {
-  incident_id: string
-  audio_sha256: string
-  created_at: string
+interface RiskData {
+  risk_level?: string;
+  action?: string;
+  reason?: string;
 }
 
-interface AnalysisResult {
-  id: string
-  filename: string
-  label: string
-  confidence: number
-  risk_level: string
-  action: string
-  processing_time: number
-  model_version: string
-  anomaly_score?: number
-  security_decision?: SecurityDecision
-  incident?: Incident
-  disclaimer?: string
+interface SecurityData {
+  model_source?: string;
+  action?: string;
+  risk_level?: string;
+  incident_created?: boolean;
+  database_saved?: boolean;
+  event_id?: string;
 }
+
+interface IncidentData {
+  event_id?: string;
+  id?: string;
+  file_hash?: string;
+}
+
+interface BaselineData {
+  classification?: string;
+  anomaly_score?: number;
+  features?: Record<string, unknown>;
+}
+
+interface CNNData {
+  available?: boolean;
+  used?: boolean;
+  prediction?: string | null;
+  confidence?: number | null;
+  model_version?: string | null;
+}
+
+interface AnalysisResponse {
+  success: boolean;
+  analysis: AnalysisData;
+  risk?: RiskData;
+  security?: SecurityData;
+  baseline?: BaselineData;
+  cnn?: CNNData;
+  incident?: IncidentData | null;
+  development_notice?: string;
+}
+
+const formatTime = (seconds: number) => {
+  const mins = Math.floor(seconds / 60)
+    .toString()
+    .padStart(2, "0");
+
+  const secs = Math.floor(seconds % 60)
+    .toString()
+    .padStart(2, "0");
+
+  return `${mins}:${secs}`;
+};
+
+const formatPercent = (value?: number) => {
+  if (typeof value !== "number") return "—";
+  return `${Math.round(value * 100)}%`;
+};
+
+const getRiskClass = (risk?: string) => {
+  const value = risk?.toLowerCase();
+
+  if (value === "critical") return "critical";
+  if (value === "high") return "high";
+  if (value === "medium") return "medium";
+
+  return "low";
+};
+
+const getPredictionLabel = (prediction?: string) => {
+  if (!prediction) return "Unknown";
+
+  const value = prediction.toLowerCase();
+
+  if (value === "synthetic") return "Synthetic / AI Generated";
+  if (value === "suspicious") return "Suspicious";
+  if (value === "real") return "Likely Genuine";
+
+  return prediction;
+};
 
 export default function AnalysisPage() {
-  const [file, setFile] = useState<File | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<AnalysisResult | null>(null)
-  const [dragActive, setDragActive] = useState(false)
+  const [selectedFile, setSelectedFile] =
+    useState<File | null>(null);
 
-  const [recording, setRecording] = useState(false)
-  const [recordingTime, setRecordingTime] = useState(0)
-  const [recordedUrl, setRecordedUrl] = useState<string | null>(null)
+  const [isRecording, setIsRecording] =
+    useState(false);
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioChunksRef = useRef<Blob[]>([])
-  const timerRef = useRef<number | null>(null)
+  const [recordingSeconds, setRecordingSeconds] =
+    useState(0);
+
+  const [audioLevel, setAudioLevel] =
+    useState(0);
+
+  const [isAnalyzing, setIsAnalyzing] =
+    useState(false);
+
+  const [result, setResult] =
+    useState<AnalysisResponse | null>(null);
+
+  const [error, setError] =
+    useState("");
+
+  const mediaRecorderRef =
+    useRef<MediaRecorder | null>(null);
+
+  const mediaStreamRef =
+    useRef<MediaStream | null>(null);
+
+  const audioContextRef =
+    useRef<AudioContext | null>(null);
+
+  const analyserRef =
+    useRef<AnalyserNode | null>(null);
+
+  const animationFrameRef =
+    useRef<number | null>(null);
+
+  const recordingTimerRef =
+    useRef<number | null>(null);
+
+  const recordedChunksRef =
+    useRef<Blob[]>([]);
+
+  // ==========================================================
+  // CLEANUP
+  // ==========================================================
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) {
-        window.clearInterval(timerRef.current)
+      stopAudioMonitoring();
+
+      if (recordingTimerRef.current) {
+        window.clearInterval(
+          recordingTimerRef.current
+        );
       }
 
-      if (recordedUrl) {
-        URL.revokeObjectURL(recordedUrl)
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current
+          .getTracks()
+          .forEach((track) => track.stop());
       }
+    };
+  }, []);
+
+  // ==========================================================
+  // AUDIO LEVEL MONITOR
+  // ==========================================================
+
+  const monitorAudioLevel = () => {
+    const analyser = analyserRef.current;
+
+    if (!analyser) return;
+
+    const data =
+      new Uint8Array(
+        analyser.fftSize
+      );
+
+    analyser.getByteTimeDomainData(data);
+
+    let sum = 0;
+
+    for (const value of data) {
+      const normalized =
+        (value - 128) / 128;
+
+      sum += normalized * normalized;
     }
-  }, [recordedUrl])
 
-  const handleFile = (selectedFile: File) => {
-    if (selectedFile.type.startsWith('audio/')) {
-      setFile(selectedFile)
-      setResult(null)
-    } else {
-      alert('Please select an audio file')
+    const rms =
+      Math.sqrt(
+        sum / data.length
+      );
+
+    const level = Math.min(
+      100,
+      Math.round(rms * 220)
+    );
+
+    setAudioLevel(level);
+
+    animationFrameRef.current =
+      requestAnimationFrame(
+        monitorAudioLevel
+      );
+  };
+
+  const stopAudioMonitoring = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(
+        animationFrameRef.current
+      );
+
+      animationFrameRef.current = null;
     }
-  }
 
-  const clearFile = () => {
-    setFile(null)
-    setResult(null)
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
 
-    if (recordedUrl) {
-      URL.revokeObjectURL(recordedUrl)
-      setRecordedUrl(null)
+      audioContextRef.current = null;
     }
-  }
 
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
+    analyserRef.current = null;
+    setAudioLevel(0);
+  };
 
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true)
-    } else if (e.type === 'dragleave') {
-      setDragActive(false)
-    }
-  }
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setDragActive(false)
-
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFile(e.dataTransfer.files[0])
-    }
-  }
+  // ==========================================================
+  // START RECORDING
+  // ==========================================================
 
   const startRecording = async () => {
     try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert('Microphone recording is not supported by this browser.')
-        return
+      setError("");
+      setResult(null);
+      setSelectedFile(null);
+
+      if (
+        !navigator.mediaDevices ||
+        !navigator.mediaDevices.getUserMedia
+      ) {
+        setError(
+          "Microphone access is not supported by this browser."
+        );
+
+        return;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      })
+      const stream =
+        await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
 
-      audioChunksRef.current = []
+      mediaStreamRef.current = stream;
 
-      const recorder = new MediaRecorder(stream)
+      let mimeType = "";
 
-      mediaRecorderRef.current = recorder
+      if (
+        MediaRecorder.isTypeSupported(
+          "audio/webm;codecs=opus"
+        )
+      ) {
+        mimeType =
+          "audio/webm;codecs=opus";
+      } else if (
+        MediaRecorder.isTypeSupported(
+          "audio/webm"
+        )
+      ) {
+        mimeType = "audio/webm";
+      }
 
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data)
+      const recorder = mimeType
+        ? new MediaRecorder(
+            stream,
+            { mimeType }
+          )
+        : new MediaRecorder(stream);
+
+      mediaRecorderRef.current =
+        recorder;
+
+      recordedChunksRef.current = [];
+
+      recorder.ondataavailable = (
+        event
+      ) => {
+        if (
+          event.data &&
+          event.data.size > 0
+        ) {
+          recordedChunksRef.current.push(
+            event.data
+          );
         }
-      }
+      };
 
       recorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, {
-          type: recorder.mimeType || 'audio/webm',
-        })
+        const blob =
+          new Blob(
+            recordedChunksRef.current,
+            {
+              type:
+                mimeType ||
+                "audio/webm",
+            }
+          );
 
-        const recordedFile = new File(
-          [audioBlob],
-          'voiceguard-recording.webm',
-          {
-            type: audioBlob.type,
+        const file =
+          new File(
+            [blob],
+            "voiceguard-recording.webm",
+            {
+              type:
+                mimeType ||
+                "audio/webm",
+            }
+          );
+
+        setSelectedFile(file);
+
+        if (
+          mediaStreamRef.current
+        ) {
+          mediaStreamRef.current
+            .getTracks()
+            .forEach(
+              (track) =>
+                track.stop()
+            );
+
+          mediaStreamRef.current =
+            null;
+        }
+      };
+
+      // Live audio monitoring.
+      const AudioContextClass =
+        window.AudioContext ||
+        (
+          window as typeof window & {
+            webkitAudioContext?: typeof AudioContext;
           }
-        )
+        ).webkitAudioContext;
 
-        const url = URL.createObjectURL(audioBlob)
+      if (AudioContextClass) {
+        const context =
+          new AudioContextClass();
 
-        if (recordedUrl) {
-          URL.revokeObjectURL(recordedUrl)
-        }
+        const source =
+          context.createMediaStreamSource(
+            stream
+          );
 
-        setRecordedUrl(url)
-        setFile(recordedFile)
+        const analyser =
+          context.createAnalyser();
 
-        stream.getTracks().forEach((track) => track.stop())
+        analyser.fftSize = 256;
 
-        if (timerRef.current) {
-          window.clearInterval(timerRef.current)
-          timerRef.current = null
-        }
+        source.connect(analyser);
+
+        audioContextRef.current =
+          context;
+
+        analyserRef.current =
+          analyser;
+
+        monitorAudioLevel();
       }
 
-      recorder.start()
+      recorder.start(250);
 
-      setRecording(true)
-      setRecordingTime(0)
-      setResult(null)
+      setIsRecording(true);
+      setRecordingSeconds(0);
 
-      timerRef.current = window.setInterval(() => {
-        setRecordingTime((previous) => previous + 1)
-      }, 1000)
-    } catch (error) {
-      console.error('Microphone access failed:', error)
+      recordingTimerRef.current =
+        window.setInterval(() => {
+          setRecordingSeconds(
+            (previous) =>
+              previous + 1
+          );
+        }, 1000);
 
-      alert(
-        'Microphone access was denied or unavailable. Please allow microphone access in your browser.'
-      )
+    } catch (err) {
+      console.error(err);
+
+      setError(
+        "Microphone permission was denied or the microphone could not be accessed."
+      );
+
+      setIsRecording(false);
     }
-  }
+  };
+
+  // ==========================================================
+  // STOP RECORDING
+  // ==========================================================
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && recording) {
-      mediaRecorderRef.current.stop()
-      setRecording(false)
+    if (
+      mediaRecorderRef.current &&
+      mediaRecorderRef.current.state !==
+        "inactive"
+    ) {
+      mediaRecorderRef.current.stop();
     }
-  }
 
-  const analyzeAudio = async () => {
-    if (!file) return
+    setIsRecording(false);
 
-    setLoading(true)
-    setResult(null)
+    if (recordingTimerRef.current) {
+      window.clearInterval(
+        recordingTimerRef.current
+      );
 
-    const formData = new FormData()
-    formData.append('file', file)
+      recordingTimerRef.current = null;
+    }
+
+    stopAudioMonitoring();
+  };
+
+  // ==========================================================
+  // FILE SELECTION
+  // ==========================================================
+
+  const handleFileChange = (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file =
+      event.target.files?.[0];
+
+    if (!file) return;
+
+    const allowed = [
+      ".wav",
+      ".mp3",
+      ".m4a",
+      ".ogg",
+      ".webm",
+    ];
+
+    const filename =
+      file.name.toLowerCase();
+
+    const valid =
+      allowed.some(
+        (extension) =>
+          filename.endsWith(extension)
+      );
+
+    if (!valid) {
+      setError(
+        "Unsupported audio format. Use WAV, MP3, M4A, OGG, or WebM."
+      );
+
+      setSelectedFile(null);
+
+      return;
+    }
+
+    if (
+      file.size >
+      50 * 1024 * 1024
+    ) {
+      setError(
+        "The audio file must be smaller than 50 MB."
+      );
+
+      setSelectedFile(null);
+
+      return;
+    }
+
+    setError("");
+    setResult(null);
+    setSelectedFile(file);
+  };
+
+  // ==========================================================
+  // ANALYZE
+  // ==========================================================
+
+  const analyzeVoice = async () => {
+    if (!selectedFile) {
+      setError(
+        "Please record audio or select an audio file first."
+      );
+
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setError("");
+    setResult(null);
 
     try {
-      const res = await axios.post(
-        'http://localhost:8000/api/analysis/analyze',
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        }
-      )
+      const formData =
+        new FormData();
 
-      setResult(res.data)
-    } catch (error) {
-      console.error('Analysis failed:', error)
-      alert('Analysis failed. Check backend connection.')
+      formData.append(
+        "file",
+        selectedFile
+      );
+
+      const response =
+        await fetch(
+          `${API_URL}/analysis/analyze`,
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+      const data =
+        await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.detail ||
+            "Voice analysis failed."
+        );
+      }
+
+      if (!data?.success) {
+        throw new Error(
+          "VoiceGuard returned an invalid analysis response."
+        );
+      }
+
+      setResult(data);
+
+    } catch (err) {
+      console.error(err);
+
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to analyze the audio."
+      );
     } finally {
-      setLoading(false)
+      setIsAnalyzing(false);
     }
-  }
+  };
 
-  const getRiskClass = (risk: string) => {
-    const normalized = risk.toLowerCase()
-
-    if (normalized === 'low') {
-      return 'analysis-risk-low'
-    }
-
-    if (normalized === 'medium') {
-      return 'analysis-risk-medium'
-    }
-
-    if (normalized === 'high') {
-      return 'analysis-risk-high'
-    }
-
-    if (normalized === 'critical') {
-      return 'analysis-risk-critical'
-    }
-
-    return 'analysis-risk-default'
-  }
-
-  const getActionClass = (action: string) => {
-    const normalized = action.toLowerCase()
-
-    if (normalized === 'allow') {
-      return 'analysis-action-allow'
-    }
-
-    if (normalized === 'verify') {
-      return 'analysis-action-verify'
-    }
-
-    if (normalized === 'alert') {
-      return 'analysis-action-alert'
-    }
-
-    if (normalized === 'block') {
-      return 'analysis-action-block'
-    }
-
-    return 'analysis-action-default'
-  }
-
-  const getDecisionIcon = (action: string) => {
-    const normalized = action.toLowerCase()
-
-    if (normalized === 'block' || normalized === 'alert') {
-      return <ShieldAlert className="w-6 h-6" />
-    }
-
-    if (normalized === 'verify') {
-      return <AlertTriangle className="w-6 h-6" />
-    }
-
-    return <ShieldCheck className="w-6 h-6" />
-  }
-
-  const formatTime = (seconds: number) => {
-    const minutes = Math.floor(seconds / 60)
-    const remainingSeconds = seconds % 60
-
-    return (
-      minutes.toString() +
-      ':' +
-      remainingSeconds.toString().padStart(2, '0')
-    )
-  }
-
-  const confidencePercentage = result
-    ? Math.max(0, Math.min(100, result.confidence * 100))
-    : 0
-
-  const anomalyPercentage = result?.anomaly_score !== undefined
-    ? Math.max(0, Math.min(100, result.anomaly_score * 100))
-    : 0
+  // ==========================================================
+  // UI
+  // ==========================================================
 
   return (
     <div className="analysis-page">
 
-      {/* Page Header */}
-      <div className="analysis-page-header">
+      <div className="analysis-header">
         <div>
-          <div className="analysis-eyebrow">
-            <Activity className="w-4 h-4" />
-            VOICE THREAT ANALYSIS
-          </div>
-
-          <h1 className="analysis-page-title">
-            Analyze Voice
-          </h1>
-
-          <p className="analysis-page-subtitle">
-            Inspect audio for potential synthetic or cloned voice characteristics.
-          </p>
-        </div>
-
-        <div className="analysis-header-status">
-          <span className="analysis-live-dot" />
-          ANALYSIS ENGINE READY
-        </div>
-      </div>
-
-      {/* Analysis Pipeline */}
-      <div className="analysis-pipeline">
-        <div className="analysis-pipeline-step active">
-          <span>01</span>
-          INPUT
-        </div>
-
-        <div className="analysis-pipeline-line" />
-
-        <div className="analysis-pipeline-step">
-          <span>02</span>
-          FEATURES
-        </div>
-
-        <div className="analysis-pipeline-line" />
-
-        <div className="analysis-pipeline-step">
-          <span>03</span>
-          DETECTION
-        </div>
-
-        <div className="analysis-pipeline-line" />
-
-        <div className="analysis-pipeline-step">
-          <span>04</span>
-          DECISION
-        </div>
-      </div>
-
-      {/* Input Cards */}
-      <div className="analysis-input-grid">
-
-        {/* Record Voice */}
-        <section className="analysis-card">
-          <div className="analysis-card-header">
-            <div className="analysis-card-icon cyan">
-              <Mic className="w-5 h-5" />
-            </div>
-
-            <div>
-              <h2>Record Voice</h2>
-              <p>Capture speech directly from your microphone</p>
-            </div>
-
-            <span className="analysis-card-number">01</span>
-          </div>
-
-          <div className="recording-zone">
-
-            <div className={recording ? 'recording-orb recording' : 'recording-orb'}>
-              <div className="recording-orb-inner">
-                <Mic className="w-9 h-9" />
-              </div>
-            </div>
-
-            {recording ? (
-              <>
-                <div className="recording-status">
-                  <span className="recording-dot" />
-                  RECORDING IN PROGRESS
-                </div>
-
-                <div className="recording-timer">
-                  {formatTime(recordingTime)}
-                </div>
-
-                <p className="recording-helper">
-                  Speak clearly into your microphone
-                </p>
-
-                <button
-                  onClick={stopRecording}
-                  className="analysis-record-button stop"
-                >
-                  <Square className="w-4 h-4" />
-                  Stop Recording
-                </button>
-              </>
-            ) : (
-              <>
-                <div className="recording-ready">
-                  <CheckCircle2 className="w-4 h-4" />
-                  MICROPHONE READY
-                </div>
-
-                <p className="recording-helper">
-                  Record a voice sample for immediate analysis
-                </p>
-
-                <button
-                  onClick={startRecording}
-                  className="analysis-record-button"
-                >
-                  <Mic className="w-4 h-4" />
-                  Start Recording
-                </button>
-              </>
-            )}
-          </div>
-
-          {recordedUrl && (
-            <div className="analysis-audio-preview">
-              <div className="analysis-preview-label">
-                <FileAudio className="w-4 h-4" />
-                Recorded Sample
-              </div>
-
-              <audio
-                src={recordedUrl}
-                controls
-                className="w-full"
-              />
-            </div>
-          )}
-        </section>
-
-        {/* Upload Audio */}
-        <section className="analysis-card">
-          <div className="analysis-card-header">
-            <div className="analysis-card-icon blue">
-              <Upload className="w-5 h-5" />
-            </div>
-
-            <div>
-              <h2>Upload Audio</h2>
-              <p>Analyze an existing voice recording</p>
-            </div>
-
-            <span className="analysis-card-number">02</span>
-          </div>
-
-          <div
-            onDragEnter={handleDrag}
-            onDragLeave={handleDrag}
-            onDragOver={handleDrag}
-            onDrop={handleDrop}
-            className={
-              dragActive
-                ? 'analysis-dropzone active'
-                : 'analysis-dropzone'
-            }
-          >
-            <div className="analysis-upload-icon">
-              <Upload className="w-7 h-7" />
-            </div>
-
-            <h3>
-              {dragActive
-                ? 'Release to upload'
-                : 'Drop your audio file here'}
-            </h3>
-
-            <p>
-              WAV, MP3, WebM and other browser-supported audio formats
-            </p>
-
-            <div className="analysis-or">
-              <span />
-              OR
-              <span />
-            </div>
-
-            <label className="analysis-file-button">
-              <FileAudio className="w-4 h-4" />
-              Browse Files
-
-              <input
-                type="file"
-                accept="audio/*"
-                onChange={(e) => {
-                  if (e.target.files && e.target.files[0]) {
-                    handleFile(e.target.files[0])
-                  }
-                }}
-                className="hidden"
-              />
-            </label>
-          </div>
-
-          {file && (
-            <div className="analysis-file-card">
-              <div className="analysis-file-icon">
-                <FileAudio className="w-5 h-5" />
-              </div>
-
-              <div className="analysis-file-info">
-                <span>SELECTED AUDIO</span>
-                <strong>{file.name}</strong>
-                <small>
-                  {(file.size / 1024 / 1024).toFixed(2)} MB
-                </small>
-              </div>
-
-              <button
-                onClick={clearFile}
-                className="analysis-clear-button"
-                title="Remove selected file"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-        </section>
-      </div>
-
-      {/* Analyze Control */}
-      <section className="analysis-action-panel">
-        <div className="analysis-action-info">
-          <div className="analysis-action-icon">
-            <Cpu className="w-5 h-5" />
-          </div>
-
-          <div>
-            <strong>VoiceGuard Detection Engine</strong>
-            <span>
-              Submit an audio sample to begin the detection pipeline
-            </span>
-          </div>
-        </div>
-
-        <button
-          onClick={analyzeAudio}
-          disabled={!file || loading || recording}
-          className="analysis-analyze-button"
-        >
-          {loading ? (
-            <>
-              <Loader className="w-5 h-5 animate-spin" />
-              ANALYZING AUDIO
-            </>
-          ) : (
-            <>
-              <Play className="w-5 h-5" />
-              ANALYZE VOICE
-            </>
-          )}
-        </button>
-      </section>
-
-      {/* Loading State */}
-      {loading && (
-        <section className="analysis-processing">
-          <div className="analysis-processing-icon">
-            <Activity className="w-6 h-6 animate-pulse" />
-          </div>
-
-          <div className="analysis-processing-content">
-            <strong>Processing audio sample...</strong>
-            <span>
-              Extracting acoustic characteristics and evaluating the current detection baseline.
-            </span>
-
-            <div className="analysis-processing-bar">
-              <div className="analysis-processing-progress" />
-            </div>
-          </div>
-
-          <span className="analysis-processing-label">
-            RUNNING
-          </span>
-        </section>
-      )}
-
-      {/* Result */}
-      {result && !loading && (
-        <section className="analysis-result-card">
-
-          {/* Result Header */}
-          <div className="analysis-result-header">
-            <div>
-              <div className="analysis-eyebrow">
-                <ShieldCheck className="w-4 h-4" />
-                ANALYSIS COMPLETE
-              </div>
-
-              <h2>Voice Analysis Result</h2>
-
-              <p>
-                Security assessment generated for{' '}
-                <strong>{result.filename}</strong>
-              </p>
-            </div>
-
-            <div className={getRiskClass(result.risk_level)}>
-              {result.risk_level.toUpperCase()} RISK
-            </div>
-          </div>
-
-          {/* Classification Hero */}
-          <div className="analysis-classification">
-
-            <div className="analysis-classification-main">
-              <span>VOICE CLASSIFICATION</span>
-
-              <strong
-                className={
-                  result.label.toLowerCase() === 'real'
-                    ? 'classification-real'
-                    : 'classification-suspicious'
-                }
-              >
-                {result.label.toLowerCase() === 'real'
-                  ? 'GENUINE'
-                  : result.label.toUpperCase()}
-              </strong>
-
-              <p>
-                Current prototype assessment based on the configured detection model.
-              </p>
-            </div>
-
-            <div className="analysis-confidence">
-              <div className="confidence-ring">
-                <div className="confidence-ring-inner">
-                  <strong>
-                    {confidencePercentage.toFixed(1)}%
-                  </strong>
-                  <span>CONFIDENCE</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="analysis-result-metrics">
-              <div>
-                <span>ANOMALY SCORE</span>
-                <strong>
-                  {result.anomaly_score !== undefined
-                    ? result.anomaly_score.toFixed(2)
-                    : 'N/A'}
-                </strong>
-              </div>
-
-              <div>
-                <span>ACTION</span>
-                <strong className={getActionClass(result.action)}>
-                  {result.action.toUpperCase()}
-                </strong>
-              </div>
-            </div>
-          </div>
-
-          {/* Confidence Bar */}
-          <div className="analysis-meter-section">
-            <div className="analysis-meter-header">
-              <span>Detection Confidence</span>
-              <strong>{confidencePercentage.toFixed(1)}%</strong>
-            </div>
-
-            <div className="analysis-meter">
-              <div
-                className="analysis-meter-fill"
-                style={{
-                  width: confidencePercentage + '%',
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Security Decision */}
-          {result.security_decision && (
-            <div className="analysis-security-decision">
-              <div
-                className={
-                  'analysis-decision-icon ' +
-                  getActionClass(result.security_decision.action)
-                }
-              >
-                {getDecisionIcon(result.security_decision.action)}
-              </div>
-
-              <div className="analysis-decision-content">
-                <div className="analysis-decision-heading">
-                  <div>
-                    <span>SECURITY DECISION</span>
-                    <strong>
-                      {result.security_decision.action.toUpperCase()}
-                    </strong>
-                  </div>
-
-                  <div className="analysis-engine-label">
-                    {result.security_decision.decision_engine}
-                  </div>
-                </div>
-
-                <p>
-                  {result.security_decision.message}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Incident */}
-          {result.incident && (
-            <div className="analysis-incident">
-              <div className="analysis-incident-header">
-                <div className="analysis-incident-icon">
-                  <Fingerprint className="w-5 h-5" />
-                </div>
-
-                <div>
-                  <strong>Security Incident Logged</strong>
-                  <span>
-                    Integrity fingerprint generated for this analysis
-                  </span>
-                </div>
-              </div>
-
-              <div className="analysis-incident-grid">
-                <div>
-                  <span>INCIDENT ID</span>
-                  <strong>
-                    {result.incident.incident_id}
-                  </strong>
-                </div>
-
-                <div>
-                  <span>SHA-256 AUDIO FINGERPRINT</span>
-                  <strong className="hash">
-                    {result.incident.audio_sha256}
-                  </strong>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Processing Details */}
-          <div className="analysis-details">
-            <div className="analysis-details-title">
-              <Clock3 className="w-4 h-4" />
-              PROCESSING DETAILS
-            </div>
-
-            <div className="analysis-details-grid">
-              <div>
-                <span>MODEL VERSION</span>
-                <strong>{result.model_version}</strong>
-              </div>
-
-              <div>
-                <span>PROCESSING TIME</span>
-                <strong>
-                  {result.processing_time.toFixed(2)}s
-                </strong>
-              </div>
-
-              <div>
-                <span>ANALYSIS ID</span>
-                <strong className="hash">
-                  {result.id.slice(0, 16)}...
-                </strong>
-              </div>
-            </div>
-          </div>
-
-          {/* Baseline Notice */}
-          <div className="analysis-baseline-notice">
-            <AlertTriangle className="w-5 h-5" />
-
-            <div>
-              <strong>Development-stage detection notice</strong>
-
-              <p>
-                {result.disclaimer ||
-                  'This result is generated by the current acoustic-feature baseline. A trained anti-spoofing model is required for production deployment.'}
-              </p>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* No Result State */}
-      {!result && !loading && (
-        <div className="analysis-empty-state">
-          <div className="analysis-empty-icon">
-            <ShieldCheck className="w-7 h-7" />
-          </div>
-
-          <h3>Ready for voice analysis</h3>
+          <h1>Voice Analysis</h1>
 
           <p>
-            Record a voice sample or upload an audio file to start the VoiceGuard detection pipeline.
+            Detect. Verify. Prevent.
           </p>
+        </div>
+
+        <div className="analysis-status-badge">
+          <span className="status-dot" />
+          VoiceGuard Engine Online
+        </div>
+      </div>
+
+      {/* =====================================================
+          LIVE MICROPHONE
+      ====================================================== */}
+
+      <section className="analysis-card">
+
+        <div className="analysis-card-header">
+          <div>
+            <h2>Live Voice Capture</h2>
+
+            <p>
+              Record speech for VoiceGuard analysis.
+            </p>
+          </div>
+
+          {isRecording && (
+            <span className="recording-badge">
+              ● RECORDING
+            </span>
+          )}
+        </div>
+
+        <div className="recording-panel">
+
+          <div className="recording-circle">
+
+            <div
+              className={
+                isRecording
+                  ? "mic-icon recording"
+                  : "mic-icon"
+              }
+            >
+              🎙️
+            </div>
+
+          </div>
+
+          <div className="recording-info">
+
+            <div className="recording-time">
+              {formatTime(
+                recordingSeconds
+              )}
+            </div>
+
+            <div className="audio-level-label">
+              Microphone Level
+            </div>
+
+            <div className="audio-level-bar">
+              <div
+                className="audio-level-fill"
+                style={{
+                  width: `${audioLevel}%`,
+                }}
+              />
+            </div>
+
+            <div className="audio-level-value">
+              {audioLevel}%
+            </div>
+
+          </div>
+
+        </div>
+
+        <div className="analysis-actions">
+
+          {!isRecording ? (
+            <button
+              className="primary-button"
+              onClick={startRecording}
+              disabled={isAnalyzing}
+            >
+              🎙 Start Recording
+            </button>
+          ) : (
+            <button
+              className="danger-button"
+              onClick={stopRecording}
+            >
+              ■ Stop Recording
+            </button>
+          )}
+
+        </div>
+
+      </section>
+
+      {/* =====================================================
+          FILE UPLOAD
+      ====================================================== */}
+
+      <section className="analysis-card">
+
+        <div className="analysis-card-header">
+          <div>
+            <h2>Audio File Analysis</h2>
+
+            <p>
+              Upload an existing recording.
+            </p>
+          </div>
+        </div>
+
+        <label
+          className="upload-zone"
+        >
+          <input
+            type="file"
+            accept=".wav,.mp3,.m4a,.ogg,.webm,audio/*"
+            onChange={
+              handleFileChange
+            }
+            disabled={isAnalyzing}
+          />
+
+          <div className="upload-icon">
+            ↑
+          </div>
+
+          <strong>
+            Click to select audio
+          </strong>
+
+          <span>
+            WAV, MP3, M4A, OGG, WebM ·
+            Maximum 50 MB
+          </span>
+        </label>
+
+        {selectedFile && (
+          <div className="selected-file">
+
+            <div>
+              <strong>
+                {selectedFile.name}
+              </strong>
+
+              <span>
+                {" "}
+                ·{" "}
+                {(
+                  selectedFile.size /
+                  1024
+                ).toFixed(1)}{" "}
+                KB
+              </span>
+            </div>
+
+            <button
+              onClick={
+                analyzeVoice
+              }
+              disabled={isAnalyzing}
+              className="primary-button"
+            >
+              {isAnalyzing
+                ? "Analyzing..."
+                : "Analyze Voice"}
+            </button>
+
+          </div>
+        )}
+
+      </section>
+
+      {/* =====================================================
+          ERROR
+      ====================================================== */}
+
+      {error && (
+        <div className="analysis-error">
+          <strong>
+            Analysis Error
+          </strong>
+
+          <span>
+            {error}
+          </span>
         </div>
       )}
 
-      {/* Technical note */}
-      <div className="analysis-footer-note">
-        <ShieldAlert className="w-4 h-4" />
-        <span>
-          VoiceGuard is currently operating with a development-stage acoustic feature baseline. Results should be treated as prototype assessments.
-        </span>
-      </div>
+      {/* =====================================================
+          RESULT
+      ====================================================== */}
+
+      {result && (
+        <section className="analysis-results">
+
+          <div className="result-header">
+
+            <div>
+              <h2>
+                Analysis Result
+              </h2>
+
+              <p>
+                {result.analysis.filename}
+              </p>
+            </div>
+
+            <div
+              className={`risk-badge ${getRiskClass(
+                result.analysis.risk_level
+              )}`}
+            >
+              {(
+                result.analysis.risk_level ||
+                "unknown"
+              ).toUpperCase()}
+            </div>
+
+          </div>
+
+          {/* MAIN RESULT */}
+
+          <div className="result-main">
+
+            <div className="prediction-card">
+
+              <span>
+                CLASSIFICATION
+              </span>
+
+              <strong>
+                {getPredictionLabel(
+                  result.analysis.prediction
+                )}
+              </strong>
+
+              <div className="confidence-value">
+                {formatPercent(
+                  result.analysis.confidence
+                )}
+              </div>
+
+              <small>
+                Confidence
+              </small>
+
+            </div>
+
+            <div className="prediction-card">
+
+              <span>
+                RISK SCORE
+              </span>
+
+              <strong>
+                {formatPercent(
+                  result.analysis.risk_score
+                )}
+              </strong>
+
+              <small>
+                Security risk
+              </small>
+
+            </div>
+
+            <div className="prediction-card">
+
+              <span>
+                SECURITY ACTION
+              </span>
+
+              <strong>
+                {(
+                  result.analysis.action ||
+                  result.security?.action ||
+                  "VERIFY"
+                ).toUpperCase()}
+              </strong>
+
+              <small>
+                Decision engine
+              </small>
+
+            </div>
+
+          </div>
+
+          {/* PROBABILITIES */}
+
+          <div className="probability-grid">
+
+            <div>
+              <span>
+                Likely Genuine
+              </span>
+
+              <strong>
+                {formatPercent(
+                  result.analysis
+                    .real_probability
+                )}
+              </strong>
+            </div>
+
+            <div>
+              <span>
+                Likely Synthetic
+              </span>
+
+              <strong>
+                {formatPercent(
+                  result.analysis
+                    .synthetic_probability
+                )}
+              </strong>
+            </div>
+
+          </div>
+
+          {/* SECURITY */}
+
+          <div className="security-result">
+
+            <div>
+              <span>
+                Security Decision
+              </span>
+
+              <strong>
+                {(
+                  result.security?.action ||
+                  result.risk?.action ||
+                  "VERIFY"
+                ).toUpperCase()}
+              </strong>
+            </div>
+
+            <div>
+              <span>
+                Risk Level
+              </span>
+
+              <strong>
+                {(
+                  result.security?.risk_level ||
+                  result.analysis.risk_level ||
+                  "medium"
+                ).toUpperCase()}
+              </strong>
+            </div>
+
+            <div>
+              <span>
+                Event ID
+              </span>
+
+              <strong>
+                {result.security?.event_id ||
+                  result.incident?.event_id ||
+                  result.incident?.id ||
+                  "—"}
+              </strong>
+            </div>
+
+          </div>
+
+          {/* MODEL */}
+
+          <div className="model-information">
+
+            <div>
+              <span>
+                Detection Engine
+              </span>
+
+              <strong>
+                {(
+                  result.analysis.model_source ||
+                  "baseline"
+                ).toUpperCase()}
+              </strong>
+            </div>
+
+            <div>
+              <span>
+                Model Version
+              </span>
+
+              <strong>
+                {result.analysis
+                  .model_version ||
+                  "—"}
+              </strong>
+            </div>
+
+            <div>
+              <span>
+                CNN Status
+              </span>
+
+              <strong>
+                {result.cnn?.used
+                  ? "ACTIVE"
+                  : "NOT TRAINED"}
+              </strong>
+            </div>
+
+          </div>
+
+          {/* DEVELOPMENT NOTICE */}
+
+          <div className="analysis-baseline-notice">
+
+            <strong>
+              Development-stage model
+            </strong>
+
+            <p>
+              {result.development_notice ||
+                "VoiceGuard results are currently development-stage and must not be treated as production-grade voice-clone detection until the ML model is properly trained and evaluated."}
+            </p>
+
+          </div>
+
+        </section>
+      )}
+
     </div>
-  )
+  );
 }

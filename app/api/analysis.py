@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -19,15 +20,28 @@ from app.services.audio_detector import (
     SUPPORTED_EXTENSIONS,
     analyze_audio,
 )
+from app.services.realtime_detector import realtime_detector
 from app.services.security_engine import evaluate_risk, risk_score
 
 
-# main.py already adds /api
+# ============================================================
+# ROUTER
+# ============================================================
+
+# main.py already adds the /api prefix.
 router = APIRouter(
     tags=["analysis"],
 )
 
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
 MAX_FILE_SIZE = 50 * 1024 * 1024
+REALTIME_MAX_FILE_SIZE = 5 * 1024 * 1024
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -55,9 +69,12 @@ def _json_safe(value: Any) -> Any:
         }
 
     if isinstance(value, (list, tuple)):
-        return [_json_safe(item) for item in value]
+        return [
+            _json_safe(item)
+            for item in value
+        ]
 
-    # NumPy scalar support without importing NumPy here.
+    # NumPy scalar support without importing NumPy.
     if hasattr(value, "item"):
         try:
             return value.item()
@@ -172,11 +189,30 @@ async def analyze_uploaded_audio(
     # 1. Validate filename
     # --------------------------------------------------------
 
-    filename = Path(
-        file.filename or "audio.wav"
-    ).name
+    original_filename = file.filename or ""
+
+    if not original_filename.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="Filename is required.",
+        )
+
+    # Prevent directory traversal.
+    filename = Path(original_filename).name
+
+    if not filename or filename in {".", ".."}:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid filename.",
+        )
 
     extension = Path(filename).suffix.lower()
+
+    if not extension:
+        raise HTTPException(
+            status_code=400,
+            detail="Audio file extension is required.",
+        )
 
     if extension not in SUPPORTED_EXTENSIONS:
         raise HTTPException(
@@ -194,10 +230,16 @@ async def analyze_uploaded_audio(
 
     try:
         audio_bytes = await file.read()
-    except Exception as exc:
+
+    except Exception:
+        logger.exception(
+            "Unable to read uploaded audio file: %s",
+            filename,
+        )
+
         raise HTTPException(
             status_code=400,
-            detail=f"Unable to read uploaded audio file: {exc}",
+            detail="Unable to read the uploaded audio file.",
         )
 
     if not audio_bytes:
@@ -217,35 +259,60 @@ async def analyze_uploaded_audio(
         )
 
     # --------------------------------------------------------
-    # 4. Generate IDs and hash
+    # 4. Generate IDs and SHA-256 hash
     # --------------------------------------------------------
 
     analysis_id = (
         f"AN-{uuid.uuid4().hex[:10].upper()}"
     )
 
-    file_hash = hashlib.sha256(audio_bytes).hexdigest()
+    file_hash = hashlib.sha256(
+        audio_bytes
+    ).hexdigest()
+
+    logger.info(
+        "Starting VoiceGuard analysis %s for %s",
+        analysis_id,
+        filename,
+    )
 
     # --------------------------------------------------------
     # 5. Run baseline detector
     # --------------------------------------------------------
 
     try:
+
         baseline_result = analyze_audio(
             audio_bytes=audio_bytes,
             filename=filename,
         )
 
     except ValueError as exc:
+
+        logger.warning(
+            "Audio validation failed for %s: %s",
+            analysis_id,
+            exc,
+        )
+
         raise HTTPException(
             status_code=400,
             detail=str(exc),
         )
 
-    except Exception as exc:
+    except Exception:
+
+        logger.exception(
+            "Unexpected error during audio analysis %s",
+            analysis_id,
+        )
+
         raise HTTPException(
             status_code=500,
-            detail=f"Audio analysis failed: {exc}",
+            detail=(
+                "Voice analysis failed. "
+                "Please try again."
+            ),
         )
 
     # --------------------------------------------------------
@@ -259,12 +326,20 @@ async def analyze_uploaded_audio(
     if cnn_status.get("available", False):
 
         try:
+
             cnn_result = inference_service.predict(
                 audio_bytes=audio_bytes,
                 filename=filename,
             )
+
         except Exception:
-            # Safe fallback to baseline.
+
+            logger.exception(
+                "CNN inference failed for %s; "
+                "falling back to baseline detector",
+                analysis_id,
+            )
+
             cnn_result = None
 
     # --------------------------------------------------------
@@ -337,7 +412,10 @@ async def analyze_uploaded_audio(
         )
 
         synthetic_probability = anomaly_score
-        real_probability = 1.0 - anomaly_score
+
+        real_probability = (
+            1.0 - anomaly_score
+        )
 
         if prediction == "synthetic":
             confidence = synthetic_probability
@@ -347,22 +425,58 @@ async def analyze_uploaded_audio(
         model_version = BASELINE_MODEL_VERSION
 
     # --------------------------------------------------------
-    # 8. Risk assessment
+    # 8. Clamp probability values
+    # --------------------------------------------------------
+
+    real_probability = max(
+        0.0,
+        min(
+            1.0,
+            real_probability,
+        ),
+    )
+
+    synthetic_probability = max(
+        0.0,
+        min(
+            1.0,
+            synthetic_probability,
+        ),
+    )
+
+    confidence = max(
+        0.0,
+        min(
+            1.0,
+            confidence,
+        ),
+    )
+
+    # --------------------------------------------------------
+    # 9. Risk assessment
     # --------------------------------------------------------
 
     try:
+
         risk_result = evaluate_risk(
             prediction=prediction,
             confidence=confidence,
         )
 
     except TypeError:
+
         risk_result = evaluate_risk(
             prediction,
             confidence,
         )
 
     except Exception:
+
+        logger.exception(
+            "Risk engine failed for analysis %s",
+            analysis_id,
+        )
+
         risk_result = {
             "risk_level": "medium",
             "action": "verify",
@@ -372,10 +486,13 @@ async def analyze_uploaded_audio(
         }
 
     if not isinstance(risk_result, dict):
+
         risk_result = {
             "risk_level": "medium",
             "action": "verify",
-            "reason": "Invalid risk engine response.",
+            "reason": (
+                "Invalid risk engine response."
+            ),
         }
 
     risk_level = str(
@@ -390,27 +507,37 @@ async def analyze_uploaded_audio(
             "action",
             "verify",
         )
-    )
+    ).lower()
 
     # --------------------------------------------------------
-    # 9. Calculate normalized risk score
+    # 10. Calculate normalized risk score
     # --------------------------------------------------------
 
     try:
+
         normalized_risk_score = float(
             risk_score(
                 prediction=prediction,
                 confidence=confidence,
             )
         )
+
     except TypeError:
+
         normalized_risk_score = float(
             risk_score(
                 prediction,
                 confidence,
             )
         )
+
     except Exception:
+
+        logger.exception(
+            "Risk score calculation failed for %s",
+            analysis_id,
+        )
+
         normalized_risk_score = (
             synthetic_probability
             if prediction == "synthetic"
@@ -426,25 +553,32 @@ async def analyze_uploaded_audio(
     )
 
     # --------------------------------------------------------
-    # 10. Extract duration
+    # 11. Extract duration
     # --------------------------------------------------------
 
     duration_seconds = None
 
     try:
+
         duration_seconds = float(
             baseline_result.get(
                 "features",
-                {}
+                {},
             ).get(
                 "duration_seconds"
             )
         )
-    except (TypeError, ValueError, AttributeError):
+
+    except (
+        TypeError,
+        ValueError,
+        AttributeError,
+    ):
+
         duration_seconds = None
 
     # --------------------------------------------------------
-    # 11. Create incident using existing logger
+    # 12. Create incident
     # --------------------------------------------------------
 
     incident = None
@@ -459,16 +593,24 @@ async def analyze_uploaded_audio(
     }
 
     try:
+
         incident = incident_logger.create_incident(
             audio_bytes=audio_bytes,
             filename=filename,
             analysis_result=incident_analysis,
         )
+
     except Exception:
+
+        logger.exception(
+            "Incident creation failed for analysis %s",
+            analysis_id,
+        )
+
         incident = None
 
     # --------------------------------------------------------
-    # 12. Build database analysis record
+    # 13. Build database analysis record
     # --------------------------------------------------------
 
     analysis_db = AnalysisResult(
@@ -484,12 +626,14 @@ async def analyze_uploaded_audio(
         risk_level=risk_level,
         risk_score=normalized_risk_score,
         security_action=action,
+
         features=_json_safe(
             baseline_result.get(
                 "features",
                 {},
             )
         ),
+
         result_data=_json_safe({
             "model_source": model_source,
             "baseline": baseline_result,
@@ -499,7 +643,7 @@ async def analyze_uploaded_audio(
     )
 
     # --------------------------------------------------------
-    # 13. Build security event
+    # 14. Build security event
     # --------------------------------------------------------
 
     event_id = (
@@ -516,10 +660,12 @@ async def analyze_uploaded_audio(
         risk_score=normalized_risk_score,
         action=action,
         file_hash=file_hash,
+
         message=(
             f"VoiceGuard analysis completed using "
             f"{model_source} model."
         ),
+
         event_data=_json_safe({
             "filename": filename,
             "model_version": model_version,
@@ -529,36 +675,49 @@ async def analyze_uploaded_audio(
     )
 
     # --------------------------------------------------------
-    # 14. Persist everything
+    # 15. Persist everything
     # --------------------------------------------------------
 
     database_saved = False
 
     try:
+
         db.add(analysis_db)
         db.add(security_event)
+
         db.commit()
 
         database_saved = True
 
-    except Exception as exc:
+        logger.info(
+            "Analysis %s successfully stored in PostgreSQL",
+            analysis_id,
+        )
+
+    except Exception:
 
         db.rollback()
+
+        logger.exception(
+            "Database persistence failed for analysis %s",
+            analysis_id,
+        )
 
         raise HTTPException(
             status_code=500,
             detail=(
-                "Analysis completed but database persistence "
-                f"failed: {exc}"
+                "Analysis completed, but the result "
+                "could not be securely stored."
             ),
         )
 
     # --------------------------------------------------------
-    # 15. Build response
+    # 16. Build response
     # --------------------------------------------------------
 
     analysis = {
         "id": analysis_id,
+
         "filename": filename,
 
         "prediction": prediction,
@@ -597,6 +756,16 @@ async def analyze_uploaded_audio(
             else None
         ),
     }
+
+    logger.info(
+        "VoiceGuard analysis completed: %s | "
+        "prediction=%s | risk=%s | action=%s | model=%s",
+        analysis_id,
+        prediction,
+        risk_level,
+        action,
+        model_source,
+    )
 
     return {
         "success": True,
@@ -696,7 +865,9 @@ def get_analyses(
 
     records = (
         db.query(AnalysisResult)
-        .order_by(AnalysisResult.created_at.desc())
+        .order_by(
+            AnalysisResult.created_at.desc()
+        )
         .limit(100)
         .all()
     )
@@ -704,6 +875,7 @@ def get_analyses(
     analyses = []
 
     for record in records:
+
         analyses.append({
             "id": record.analysis_id,
             "filename": record.filename,
@@ -742,7 +914,9 @@ def get_incidents(
 
     records = (
         db.query(SecurityEvent)
-        .order_by(SecurityEvent.created_at.desc())
+        .order_by(
+            SecurityEvent.created_at.desc()
+        )
         .limit(100)
         .all()
     )
@@ -750,6 +924,7 @@ def get_incidents(
     incidents = []
 
     for record in records:
+
         incidents.append({
             "id": record.event_id,
             "analysis_id": record.analysis_id,
@@ -774,3 +949,78 @@ def get_incidents(
         "count": len(incidents),
         "storage": "postgresql",
     }
+
+
+# ============================================================
+# REAL-TIME CHUNK ANALYSIS
+# ============================================================
+
+@router.post("/analysis/realtime")
+async def realtime_audio_analysis(
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+
+    original_filename = file.filename or ""
+
+    filename = Path(
+        original_filename or "realtime_chunk.webm"
+    ).name
+
+    if not filename or filename in {".", ".."}:
+        filename = "realtime_chunk.webm"
+
+    try:
+
+        audio_bytes = await file.read()
+
+    except Exception:
+
+        logger.exception(
+            "Failed to read realtime audio chunk"
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail="Unable to read audio chunk.",
+        )
+
+    if not audio_bytes:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Audio chunk is empty.",
+        )
+
+    # Realtime chunks are intentionally limited
+    # to a smaller size than normal uploads.
+    if len(audio_bytes) > REALTIME_MAX_FILE_SIZE:
+
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                "Realtime audio chunk is too large. "
+                "Maximum size is 5 MB."
+            ),
+        )
+
+    logger.info(
+        "Processing realtime audio chunk: %s",
+        filename,
+    )
+
+    result = realtime_detector.process_chunk(
+        audio_bytes=audio_bytes,
+        filename=filename,
+    )
+
+    if not result.get("success", False):
+
+        raise HTTPException(
+            status_code=400,
+            detail=result.get(
+                "error",
+                "Realtime analysis failed.",
+            ),
+        )
+
+    return result
