@@ -1,269 +1,644 @@
-# VOICEGUARD
-**AI-Powered Real-Time Voice Clone Detection & Prevention System**
+# 🛡️ VoiceGuard
 
-Detect. Verify. Prevent.
+### AI-Powered Voice Clone Detection & Security Decision Platform
 
-## Smart India Hackathon 2026
-- **Problem ID:** SIH26104
-- **Theme:** Blockchain & Cybersecurity
-- **Category:** Software
-- **Team:** Binary Builders
+**Detect. Verify. Prevent.**
 
-## Overview
-VoiceGuard is a cybersecurity platform that detects whether speech is genuine or AI-generated/cloned in real-time. The system calculates confidence scores and risk assessments, enabling automated security decisions.
+VoiceGuard is a cybersecurity platform designed to analyze speech/audio and identify suspicious or potentially AI-generated/voice-cloned audio.
 
-## Architecture
+The platform combines:
+- Audio validation
+- Acoustic feature extraction
+- Voice classification
+- Confidence scoring
+- Anomaly/risk assessment
+- Automated security decisions
+- Incident generation
+- SHA-256 integrity fingerprints
+- Security dashboard and analysis history
+
+> ⚠️ **Current Model Status:** VoiceGuard currently uses a measurable acoustic-feature baseline (`baseline-audio-v1`). It is a prototype detection pipeline and should not be represented as a production-grade deepfake detector until a properly trained and evaluated anti-spoofing model is integrated.
+
+---
+
+# 🇮🇳 Smart India Hackathon 2026
+
+| Field | Details |
+|---|---|
+| **Problem ID** | **SIH26104** |
+| **Theme** | **Blockchain & Cybersecurity** |
+| **Category** | **Software** |
+| **Team** | **Binary Builders** |
+
+---
+
+# 🎯 Vision
+
+Voice cloning and AI-generated speech can be used in:
+- Financial fraud
+- Impersonation attacks
+- Social engineering
+- Fake customer-support calls
+- Identity-based attacks
+- Unauthorized voice authentication
+
+VoiceGuard is designed as a security layer that analyzes incoming voice/audio and produces an actionable security assessment.
+
+```text
+VOICE INPUT
+    ↓
+AUDIO VALIDATION
+    ↓
+PREPROCESSING
+    ↓
+FEATURE EXTRACTION
+    ↓
+VOICE ANALYSIS
+    ↓
+CLASSIFICATION + ANOMALY SCORE
+    ↓
+RISK ENGINE
+    ↓
+SECURITY DECISION
+    ↓
+ALLOW / VERIFY / ALERT / BLOCK
+    ↓
+INCIDENT LOG
+    ↓
+DASHBOARD
 ```
-Voice Input → Validation → Preprocessing → Feature Extraction → ML Detection 
-→ Risk Assessment → Decision Engine → Secure Logging → Dashboard
+
+---
+
+# ✨ Current Features
+
+## Dashboard
+- Total analysis count
+- Genuine/suspicious statistics
+- Risk information
+- Detection distribution
+- Security status
+- Recent analysis history
+- Backend connection status
+
+## 🎙️ Voice Analysis
+- Audio file upload
+- Recorded audio input
+- Audio validation
+- Backend analysis
+- Classification result
+- Confidence score
+- Anomaly/risk information
+- Security decision
+- Analysis history
+
+## 🧠 Audio Detection Pipeline
+
+The current prototype uses `baseline-audio-v1`.
+
+The baseline analyzes measurable acoustic characteristics including:
+- RMS energy
+- Zero-crossing rate
+- Spectral characteristics
+- MFCC-based features
+- Other audio statistics
+
+The resulting measurements are used to produce a classification and confidence/risk assessment.
+
+### Important
+The current baseline is **not a trained production deepfake/voice-clone detector**.
+
+A future production model should be trained and evaluated on a representative anti-spoofing dataset.
+
+---
+
+# 🛡️ Risk & Security Decisions
+
+```text
+LOW       → ALLOW
+MEDIUM    → VERIFY
+HIGH      → ALERT
+CRITICAL  → BLOCK
 ```
 
-## Tech Stack
+The security decision is generated from the analysis/risk pipeline rather than being entered manually in the dashboard.
+
+---
+
+# 📋 Security Incidents
+
+Suspicious/high-risk analyses can produce security incidents containing:
+- Incident ID
+- Analysis ID
+- Filename
+- Classification
+- Confidence
+- Anomaly score
+- Risk level
+- Security action
+- SHA-256 integrity fingerprint
+- Timestamp
+- Status
+
+### SHA-256 clarification
+SHA-256 is used as an **integrity fingerprint** for an audio/event artifact. It does **not** prove that a voice is genuine or human-generated.
+
+---
+
+# 🏗️ Architecture
+
+```text
+┌──────────────────────────────────────────────┐
+│                 React Frontend               │
+│                                              │
+│ Dashboard │ Analyze Voice │ Incidents       │
+└──────────────────────┬───────────────────────┘
+                       │ REST API
+                       ▼
+┌──────────────────────────────────────────────┐
+│                 FastAPI Backend              │
+│                                              │
+│ Validation │ Analysis │ Risk │ Incidents     │
+└──────────────────────┬───────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────┐
+│             Audio / ML Pipeline              │
+│                                              │
+│ Librosa │ NumPy │ SciPy │ Baseline Model    │
+└──────────────────────┬───────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────┐
+│               Data Layer                     │
+│                                              │
+│ Database │ Analysis Records │ Incidents      │
+└──────────────────────────────────────────────┘
+```
+
+---
+
+# 🧰 Tech Stack
 
 ### Frontend
-- React 18 + TypeScript
-- Vite + Tailwind CSS
-- Recharts for analytics
-- Axios for API calls
+- React 18
+- TypeScript
+- Vite
+- Tailwind CSS
+- Recharts
+- Axios
 
 ### Backend
+- Python
 - FastAPI
-- PostgreSQL
-- SQLAlchemy ORM
 - Uvicorn
+- SQLAlchemy
+- Pydantic
 
-### ML/Audio
+### Audio / ML
 - PyTorch
 - Librosa
-- NumPy, SciPy
+- NumPy
+- SciPy
+- MFCC / spectral audio features
 
-## Phase 1: Foundation (Current)
-✅ React dashboard with dark cybersecurity aesthetic
-✅ FastAPI backend with health checks
-✅ PostgreSQL database schema
-✅ Audio upload endpoint
-✅ Basic analysis contract
-✅ Docker configuration
+### Database
+- PostgreSQL for production/deployment
+- SQLite-compatible development configuration where applicable
 
-## Phase 2: Audio Pipeline (Next)
-- Audio validation (format, duration, sample rate)
-- Preprocessing (resampling, normalization, noise reduction)
-- Feature extraction (Mel spectrogram, MFCC)
-- Audio playback in UI
-- Processing status indicators
+### Infrastructure
+- Docker
+- Docker Compose
+- REST API
 
-## Installation
+---
 
-### Prerequisites
+# 📁 Project Structure
+
+```text
+Voiceguard/
+├── backend/
+│   ├── app/
+│   │   ├── api/
+│   │   ├── core/
+│   │   ├── models/
+│   │   ├── schemas/
+│   │   ├── services/
+│   │   ├── ml/
+│   │   └── main.py
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── services/
+│   │   ├── App.tsx
+│   │   └── index.css
+│   ├── package.json
+│   └── vite.config.*
+├── docker/
+├── docker-compose.yml
+├── .env.example
+├── .gitignore
+└── README.md
+```
+
+---
+
+# 🔌 API
+
+## Health
+
+```http
+GET /api/health
+```
+
+```http
+GET /api/system/health
+```
+
+## Analysis
+
+```http
+POST /api/analysis/analyze
+```
+
+Analyzes an uploaded audio file.
+
+Typical analysis information includes:
+- classification
+- confidence
+- anomaly score
+- risk
+- security action
+- model
+- analysis ID
+
+## Analysis History
+
+```http
+GET /api/analyses
+```
+
+## Incidents
+
+```http
+GET /api/incidents
+```
+
+---
+
+# 🚀 Local Installation
+
+## Requirements
 - Python 3.11+
 - Node.js 20+
-- PostgreSQL 16+
+- npm
+- PostgreSQL for production-style deployment
 - Docker & Docker Compose (optional)
 
-### Quick Start (Local)
+## 1. Clone
 
-1. **Clone and setup:**
 ```bash
-cd voiceguard
+git clone https://github.com/Abhineet1124/Voiceguard.git
+cd Voiceguard
+```
 
-# Create .env
-cp .env.example .env
+## 🐍 Backend
 
-# Backend setup
+```bash
 cd backend
+```
+
+### Windows
+
+```powershell
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+venv\Scripts\activate
 pip install -r requirements.txt
-
-# Frontend setup
-cd ../frontend
-npm install
-```
-
-2. **Start PostgreSQL:**
-```bash
-# Using Docker
-docker run -d \
-  --name voiceguard-db \
-  -e POSTGRES_USER=voiceguard \
-  -e POSTGRES_PASSWORD=voiceguard \
-  -e POSTGRES_DB=voiceguard \
-  -p 5432:5432 \
-  postgres:16-alpine
-```
-
-3. **Run backend:**
-```bash
-cd backend
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-4. **Run frontend (new terminal):**
+### Linux/macOS
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Backend:
+
+```text
+http://localhost:8000
+```
+
+API documentation:
+
+```text
+http://localhost:8000/docs
+```
+
+## ⚛️ Frontend
+
+Open a second terminal:
+
 ```bash
 cd frontend
+npm install
 npm run dev
 ```
 
-Access: http://localhost:5173
+Frontend:
 
-### Docker Setup
+```text
+http://localhost:5173
+```
+
+The Vite development server proxies API requests to the backend.
+
+---
+
+# 🐳 Docker
+
 ```bash
 docker compose up --build
 ```
 
-Access frontend at http://localhost:5173, backend at http://localhost:8000
+---
 
-## API Endpoints
+# 🧪 Testing
 
-### Health & Status
-- `GET /api/health` - System health check
-- `GET /api/system/health` - System status
+## Backend Health
 
-### Analysis
-- `POST /api/analyze` - Analyze uploaded audio
-- `GET /api/analyses` - List all analyses
-- `GET /api/analysis/{id}` - Get specific analysis
-
-### Coming Soon (Phase 5+)
-- `GET /api/incidents` - Security incidents
-- `POST /api/logs/verify` - Event chain verification
-- `GET /api/dashboard/stats` - Analytics
-
-## Project Structure
-```
-voiceguard/
-├── backend/
-│   ├── app/
-│   │   ├── api/           # API endpoints
-│   │   ├── core/          # Config & database
-│   │   ├── models/        # SQLAlchemy models
-│   │   ├── schemas/       # Pydantic schemas
-│   │   ├── services/      # Business logic (Phase 2+)
-│   │   ├── ml/            # ML pipeline (Phase 3+)
-│   │   └── main.py        # FastAPI app
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── pages/         # React pages
-│   │   ├── components/    # Reusable components (Phase 2+)
-│   │   ├── services/      # API client
-│   │   └── App.tsx
-│   └── package.json
-├── docker/
-├── docker-compose.yml
-├── .env.example
-└── README.md
-```
-
-## Development Roadmap
-
-| Phase | Focus | Timeline |
-|-------|-------|----------|
-| 1 | Foundation & Structure | ✅ Complete |
-| 2 | Audio Pipeline | In Progress |
-| 3 | ML Baseline (CNN) | Week 2 |
-| 4 | Risk Engine | Week 3 |
-| 5 | Security Logging | Week 3 |
-| 6 | Analytics Dashboard | Week 4 |
-| 7 | Real-Time Recording | Week 4 |
-| 8 | Security Hardening | Week 5 |
-| 9 | SIH Demo Polish | Week 5-6 |
-
-## Features (Roadmap)
-
-### Current
-- ✅ Web-based dashboard
-- ✅ Audio file upload
-- ✅ API structure
-
-### Phase 2
-- Audio validation & preprocessing
-- Mel spectrogram visualization
-- Processing status tracking
-
-### Phase 3
-- CNN-based detection
-- Model inference
-- Confidence scoring
-
-### Phase 4
-- Risk classification engine
-- Decision automation
-- Action recommendations
-
-### Phase 5-9
-- Security event logging & hashing
-- Incident management dashboard
-- Analytics with real data
-- Live microphone recording
-- User authentication
-- Rate limiting
-- Blockchain integration
-- Advanced model architectures
-
-## Testing
-
-### Backend Health Check
 ```bash
 curl http://localhost:8000/api/health
 ```
 
-### Test Upload
-Use the UI or:
-```bash
-curl -X POST -F "file=@test_audio.wav" \
-  http://localhost:8000/api/analyze
+## API Documentation
+
+Open:
+
+```text
+http://localhost:8000/docs
 ```
 
-## Important Notes
-
-1. **No Fake Data:** All metrics, predictions, and statistics are generated from actual inference and database records.
-2. **Modular Design:** Features are built incrementally. Placeholder implementations are clearly marked.
-3. **SIH Ready:** Every completed phase produces demonstrable proof for hackathon judging.
-
-## Security Considerations
-
-- Input validation on all file uploads
-- Size restrictions (50MB default)
-- Audio format whitelisting
-- No raw audio storage without explicit configuration
-- Environment variables for secrets
-- CORS configuration
-- Database connection pooling
-
-## Future Extensions
-
-- Multilingual Indian language support
-- Live phone-call integration
-- Banking fraud detection
-- Telecom system integration
-- Speaker verification
-- Multimodal deepfake detection
-- Blockchain anchoring for critical events
-- Model monitoring & continuous learning
-
-## Documentation
-
-- API docs: http://localhost:8000/docs (auto-generated OpenAPI)
-- Architecture: See individual phase documentation
-- Dataset guide: Coming Phase 3
-- Model training: Coming Phase 3
-
-## Contributing
-
-This is a Smart India Hackathon project. Code follows:
-- Clean, readable Python/TypeScript
-- Type hints throughout
-- Clear separation of concerns
-- Comprehensive error handling
-
-## License
-MIT License
-
-## Contact
-Binary Builders - Smart India Hackathon 2026
+FastAPI provides interactive API documentation.
 
 ---
 
-**Last Updated:** Phase 1 Complete
-**Next Focus:** Phase 2 - Audio Pipeline
+# 🔄 End-to-End Workflow
+
+```text
+1. User uploads or records audio
+2. Frontend validates input
+3. Audio sent to FastAPI
+4. Backend validates audio
+5. Audio features extracted
+6. baseline-audio-v1 performs analysis
+7. Classification generated
+8. Confidence/anomaly information calculated
+9. Risk level determined
+10. Security action determined
+11. Analysis stored
+12. Incident generated when applicable
+13. Dashboard/history updated
+```
+
+---
+
+# 🔐 Security
+
+VoiceGuard follows:
+- Audio upload validation
+- File-size restrictions
+- Audio-format validation
+- Environment variables for secrets
+- CORS configuration
+- Database connection management
+- Integrity fingerprints
+- Error handling
+- Frontend/backend separation
+
+### Never commit secrets
+
+Do not commit:
+```text
+.env
+API keys
+database passwords
+private credentials
+production secrets
+```
+
+Use:
+```text
+.env.example
+```
+for configuration templates.
+
+---
+
+# 📊 Current Development Status
+
+| Component | Status |
+|---|---|
+| React/Vite frontend | ✅ Working |
+| Tailwind cybersecurity UI | ✅ Working |
+| Dashboard | ✅ Implemented |
+| Audio upload | ✅ Implemented |
+| Microphone recording | ✅ Implemented |
+| FastAPI backend | ✅ Working |
+| Health API | ✅ Tested |
+| Audio analysis API | ✅ Tested |
+| Analysis history | ✅ Implemented |
+| Risk assessment | ✅ Implemented |
+| Security decision | ✅ Implemented |
+| Incident structure | ✅ Implemented |
+| SHA-256 integrity fingerprint | ✅ Implemented |
+| Baseline audio model | ✅ Implemented |
+| Production anti-spoofing model | ⏳ Future |
+| Advanced analytics | ⏳ In progress |
+| Blockchain anchoring | ⏳ Future |
+| Authentication | ⏳ Future |
+| Production security hardening | ⏳ Future |
+
+---
+
+# 🗺️ Roadmap
+
+## Phase 1 — Foundation
+**Completed**
+- React dashboard
+- FastAPI backend
+- API structure
+- Database structure
+- Dark cybersecurity UI
+- Basic audio analysis contract
+
+## Phase 2 — Audio Pipeline
+**In Progress**
+- Audio validation
+- Preprocessing
+- Resampling
+- Normalization
+- Feature extraction
+- Audio playback
+- Processing states
+- Improved recording workflow
+
+## Phase 3 — ML Detection
+**Next Major ML Milestone**
+- Proper anti-spoofing dataset
+- CNN/transformer-based model
+- Training pipeline
+- Validation pipeline
+- Model evaluation
+- Confidence calibration
+- ROC-AUC
+- Precision
+- Recall
+- F1 score
+- False acceptance/rejection analysis
+
+## Phase 4 — Risk Engine
+- Risk calibration
+- Threat scoring
+- Security policies
+- Configurable decision thresholds
+- Action recommendations
+
+## Phase 5 — Security Logging
+- Structured event logging
+- Tamper-evident event records
+- Hash chaining
+- Incident lifecycle
+- Event verification
+
+## Phase 6 — Analytics
+- Historical trends
+- Detection statistics
+- Risk distribution
+- Model performance monitoring
+- Exportable reports
+
+## Phase 7 — Real-Time Voice
+- Browser microphone streaming
+- Real-time processing
+- Streaming analysis
+- Live risk indicators
+- Call/security workflow integration
+
+## Phase 8 — Security Hardening
+- Authentication
+- Authorization
+- Rate limiting
+- Input hardening
+- Audit logging
+- Secure deployment configuration
+
+## Phase 9 — SIH Demo & Production Polish
+- Complete demo workflow
+- Performance optimization
+- Deployment
+- Documentation
+- Monitoring
+- Presentation-ready analytics
+
+---
+
+# 🧠 Future AI Improvements
+
+The long-term model should move beyond handcrafted/rule-based acoustic scoring.
+
+```text
+Raw Audio
+    ↓
+Log-Mel Spectrogram
+    ↓
+CNN / Transformer Encoder
+    ↓
+Speaker / Channel Robustness
+    ↓
+Anti-Spoofing Classifier
+    ↓
+Calibration
+    ↓
+Risk Engine
+```
+
+Potential future capabilities:
+- AI voice-clone detection
+- Replay attack detection
+- Synthetic speech detection
+- Speaker verification
+- Multilingual Indian-language support
+- Cross-dataset evaluation
+- Robustness against compression/noise
+- Model monitoring
+- Continuous model improvement
+
+---
+
+# 🇮🇳 Indian Cybersecurity Applications
+
+Potential applications:
+- Banking fraud prevention
+- UPI/social-engineering protection
+- Call-center security
+- Customer authentication
+- Government service protection
+- Telecom security
+- Digital identity protection
+- Fraud investigation
+
+---
+
+# 🏆 Smart India Hackathon
+
+VoiceGuard is being developed as a Smart India Hackathon 2026 project under:
+
+**SIH26104 — Blockchain & Cybersecurity**
+
+The system is designed around:
+
+> **Detect → Verify → Prevent**
+
+The goal is to demonstrate how AI-based audio analysis can become part of a larger cybersecurity decision system.
+
+---
+
+# ⚠️ Project Disclaimer
+
+VoiceGuard is a research/prototype cybersecurity project.
+
+Detection results should not be treated as definitive proof of authenticity without appropriate validation.
+
+The current `baseline-audio-v1` model is an experimental baseline. Production deployment requires a properly trained, independently evaluated anti-spoofing model and security validation.
+
+---
+
+# 📄 License
+
+MIT License
+
+---
+
+# 👥 Team
+
+**Binary Builders**
+
+Smart India Hackathon 2026
+
+---
+
+# 🔗 Repository
+
+https://github.com/Abhineet1124/Voiceguard
+
+---
+
+**Last Updated:** 2026
+
+**Current Focus:** Complete audio pipeline → production-grade anti-spoofing model → risk engine → security logging → SIH demo polish
