@@ -1,4 +1,5 @@
 [build]
+  base = "Voiceguard"
   command = "npm run build"
   publish = "dist"
 
